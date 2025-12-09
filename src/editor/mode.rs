@@ -4,6 +4,7 @@ pub enum Mode {
     Normal,
     Insert,
     Command,
+    FileBrowser,
 }
 
 impl Mode {
@@ -12,6 +13,7 @@ impl Mode {
             Mode::Normal => "NORMAL",
             Mode::Insert => "INSERT",
             Mode::Command => "COMMAND",
+            Mode::FileBrowser => "FILES",
         }
     }
 }

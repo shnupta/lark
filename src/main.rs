@@ -26,6 +26,7 @@ async fn main() -> std::io::Result<()> {
     let renderer = Renderer::new()?;
 
     // Initial render
+    editor.adjust_scroll(renderer.text_height());
     renderer.render(&editor)?;
 
     // Event stream for async key reading
@@ -36,6 +37,7 @@ async fn main() -> std::io::Result<()> {
         tokio::select! {
             Some(Ok(event)) = event_stream.next() => {
                 input::handle_event(&mut editor, event);
+                editor.adjust_scroll(renderer.text_height());
                 renderer.render(&editor)?;
             }
         }

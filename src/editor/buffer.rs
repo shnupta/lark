@@ -67,6 +67,18 @@ impl Buffer {
         }
     }
 
+    /// Get character at position, returns None if out of bounds
+    pub fn char_at(&self, line: usize, col: usize) -> Option<char> {
+        if line >= self.line_count() {
+            return None;
+        }
+        let rope_line = self.text.line(line);
+        if col >= rope_line.len_chars() {
+            return None;
+        }
+        Some(rope_line.char(col))
+    }
+
     /// Convert (line, col) to a char index in the rope
     fn line_col_to_char(&self, line: usize, col: usize) -> usize {
         self.text.line_to_char(line) + col
