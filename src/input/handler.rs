@@ -55,6 +55,12 @@ fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputS
         return;
     }
 
+    // Command mode takes priority - check this first
+    if workspace.mode() == Mode::Command {
+        handle_command_mode(workspace, key);
+        return;
+    }
+
     let pane = workspace.focused_pane();
     let kind = pane.kind;
 
@@ -99,12 +105,6 @@ fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputS
         }
 
         handle_file_browser(workspace, key, input_state);
-        return;
-    }
-
-    // Command mode
-    if workspace.mode() == Mode::Command {
-        handle_command_mode(workspace, key);
         return;
     }
 
