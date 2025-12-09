@@ -14,6 +14,7 @@ pub struct Workspace {
     pub running: bool,
     pub pending_keys: String,
     pub selecting_pane: bool,
+    pub theme_name: String,
 }
 
 impl Workspace {
@@ -26,6 +27,7 @@ impl Workspace {
             running: true,
             pending_keys: String::new(),
             selecting_pane: false,
+            theme_name: "gruvbox-dark".to_string(),
         }
     }
 
@@ -38,6 +40,7 @@ impl Workspace {
             running: true,
             pending_keys: String::new(),
             selecting_pane: false,
+            theme_name: "gruvbox-dark".to_string(),
         }
     }
 
@@ -189,6 +192,10 @@ impl Workspace {
 
     pub fn quit(&mut self) {
         self.running = false;
+    }
+
+    pub fn set_theme(&mut self, name: &str) {
+        self.theme_name = name.to_string();
     }
 }
 

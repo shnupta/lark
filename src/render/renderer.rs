@@ -3,7 +3,7 @@ use std::io::{self, Write, stdout};
 use crossterm::{
     cursor::{Hide, MoveTo, SetCursorStyle, Show},
     execute, queue,
-    style::{Attribute, Color, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    style::{Attribute, Print, SetAttribute, SetBackgroundColor, SetForegroundColor},
     terminal::{
         self, Clear, ClearType, DisableLineWrap, EnableLineWrap, EnterAlternateScreen,
         LeaveAlternateScreen,
@@ -11,6 +11,7 @@ use crossterm::{
 };
 
 use crate::editor::{Mode, PaneKind, Rect, Workspace};
+use crate::theme::Theme;
 
 pub struct Renderer {
     pub width: u16,
@@ -52,18 +53,21 @@ impl Renderer {
         self.height.saturating_sub(1 + tab_bar_height) as usize
     }
 
-    pub fn render(&self, workspace: &Workspace) -> io::Result<()> {
+    pub fn render(&self, workspace: &Workspace, theme: &Theme) -> io::Result<()> {
         let mut stdout = stdout();
 
         // Hide cursor during redraw to prevent flicker
         queue!(stdout, Hide)?;
+
+        // Set background color for entire screen
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
 
         let has_tabs = workspace.tab_count() > 1;
         let tab_bar_height = if has_tabs { 1u16 } else { 0 };
 
         // Render tab bar if multiple tabs
         if has_tabs {
-            self.render_tab_bar(&mut stdout, workspace)?;
+            self.render_tab_bar(&mut stdout, workspace, theme)?;
         }
 
         // Calculate layout - reserve lines for tab bar (if any) and status
@@ -81,91 +85,80 @@ impl Renderer {
                 let is_focused = workspace.is_focused(*pane_id);
                 match pane.kind {
                     PaneKind::Editor => {
-                        self.render_editor_pane(&mut stdout, pane, rect, is_focused)?
+                        self.render_editor_pane(&mut stdout, pane, rect, is_focused, theme)?
                     }
-                    PaneKind::FileBrowser => {
-                        self.render_file_browser_pane(&mut stdout, workspace, rect, is_focused)?
-                    }
+                    PaneKind::FileBrowser => self.render_file_browser_pane(
+                        &mut stdout,
+                        workspace,
+                        rect,
+                        is_focused,
+                        theme,
+                    )?,
                 }
             }
         }
 
         // If selecting pane, show overlay labels
         if workspace.selecting_pane {
-            let labeled_panes = workspace.get_editor_panes_with_labels();
-            for (label, pane_id) in labeled_panes {
-                if let Some((_, rect)) = pane_rects.iter().find(|(id, _)| *id == pane_id) {
-                    let center_x = rect.x + rect.width / 2;
-                    let center_y = rect.y + rect.height / 2;
-
-                    queue!(stdout, MoveTo(center_x.saturating_sub(2), center_y))?;
-                    queue!(stdout, SetForegroundColor(Color::Black))?;
-                    queue!(stdout, SetBackgroundColor(Color::Yellow))?;
-                    queue!(stdout, SetAttribute(Attribute::Bold))?;
-                    queue!(stdout, Print(format!(" {} ", label.to_ascii_uppercase())))?;
-                    queue!(stdout, SetAttribute(Attribute::Reset))?;
-                    queue!(stdout, SetForegroundColor(Color::Reset))?;
-                    queue!(stdout, SetBackgroundColor(Color::Reset))?;
-                }
-            }
+            self.render_pane_labels(&mut stdout, workspace, &pane_rects, theme)?;
         }
 
         // Render global status line
-        self.render_status_line(&mut stdout, workspace)?;
+        self.render_status_line(&mut stdout, workspace, theme)?;
 
         // Position cursor in focused pane
-        let focused_pane = workspace.focused_pane();
-        if let Some((_, rect)) = pane_rects.iter().find(|(id, _)| *id == focused_pane.id) {
-            if workspace.mode() == Mode::Command {
-                let cmd_col = 1 + workspace.command_buffer.len() as u16;
-                let cmd_row = self.height.saturating_sub(1);
-                queue!(stdout, MoveTo(cmd_col, cmd_row))?;
-                queue!(stdout, SetCursorStyle::BlinkingBar)?;
-                queue!(stdout, Show)?;
-            } else if focused_pane.kind == PaneKind::Editor {
-                let gutter_width = 4u16;
-                let cursor_x = rect.x + gutter_width + focused_pane.cursor.col as u16;
-                let cursor_y =
-                    rect.y + (focused_pane.cursor.line - focused_pane.scroll_offset) as u16;
-                queue!(stdout, MoveTo(cursor_x, cursor_y))?;
-
-                let cursor_style = match focused_pane.mode {
-                    Mode::Insert => SetCursorStyle::BlinkingBar,
-                    _ => SetCursorStyle::SteadyBlock,
-                };
-                queue!(stdout, cursor_style)?;
-                queue!(stdout, Show)?;
-            } else {
-                queue!(stdout, Hide)?;
-            }
-        }
+        self.position_cursor(&mut stdout, workspace, &pane_rects, theme)?;
 
         stdout.flush()?;
         Ok(())
     }
 
-    fn render_tab_bar(&self, stdout: &mut impl Write, workspace: &Workspace) -> io::Result<()> {
+    fn render_tab_bar(
+        &self,
+        stdout: &mut impl Write,
+        workspace: &Workspace,
+        theme: &Theme,
+    ) -> io::Result<()> {
         queue!(stdout, MoveTo(0, 0))?;
+        queue!(stdout, SetBackgroundColor(theme.tab_bar_bg.to_crossterm()))?;
 
-        let mut tab_display = String::new();
+        let mut x = 0u16;
         for (i, tab) in workspace.tabs.iter().enumerate() {
-            if i == workspace.active_tab {
-                tab_display.push_str(&format!(" [{}] ", tab.name));
+            let is_active = i == workspace.active_tab;
+
+            if is_active {
+                queue!(
+                    stdout,
+                    SetBackgroundColor(theme.tab_active_bg.to_crossterm())
+                )?;
+                queue!(
+                    stdout,
+                    SetForegroundColor(theme.tab_active_fg.to_crossterm())
+                )?;
             } else {
-                tab_display.push_str(&format!("  {}  ", tab.name));
+                queue!(stdout, SetBackgroundColor(theme.tab_bar_bg.to_crossterm()))?;
+                queue!(stdout, SetForegroundColor(theme.tab_bar_fg.to_crossterm()))?;
             }
+
+            let tab_text = if is_active {
+                format!(" [{}] ", tab.name)
+            } else {
+                format!("  {}  ", tab.name)
+            };
+
+            queue!(stdout, Print(&tab_text))?;
+            x += tab_text.len() as u16;
         }
 
-        let padded: String = format!("{:width$}", tab_display, width = self.width as usize)
-            .chars()
-            .take(self.width as usize)
-            .collect();
+        // Fill remaining space
+        queue!(stdout, SetBackgroundColor(theme.tab_bar_bg.to_crossterm()))?;
+        if x < self.width {
+            let remaining = " ".repeat((self.width - x) as usize);
+            queue!(stdout, Print(&remaining))?;
+        }
 
-        queue!(stdout, SetBackgroundColor(Color::DarkGrey))?;
-        queue!(stdout, SetForegroundColor(Color::White))?;
-        queue!(stdout, Print(&padded))?;
-        queue!(stdout, SetBackgroundColor(Color::Reset))?;
-        queue!(stdout, SetForegroundColor(Color::Reset))?;
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+        queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
 
         Ok(())
     }
@@ -176,10 +169,13 @@ impl Renderer {
         pane: &crate::editor::Pane,
         rect: &Rect,
         is_focused: bool,
+        theme: &Theme,
     ) -> io::Result<()> {
         let line_count = pane.buffer.line_count();
         let gutter_width = 4;
         let text_width = rect.width.saturating_sub(gutter_width) as usize;
+
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
 
         for row in 0..rect.height {
             let line_idx = row as usize + pane.scroll_offset;
@@ -188,21 +184,23 @@ impl Renderer {
             if line_idx < line_count {
                 let is_cursor_line = line_idx == pane.cursor.line;
 
+                // Line number
                 let line_num = if is_cursor_line {
                     line_idx + 1
                 } else {
                     (line_idx as isize - pane.cursor.line as isize).unsigned_abs()
                 };
 
-                if is_cursor_line {
-                    queue!(stdout, SetForegroundColor(Color::Yellow))?;
+                let line_num_color = if is_cursor_line {
+                    theme.line_number_active
                 } else {
-                    queue!(stdout, SetForegroundColor(Color::DarkGrey))?;
-                }
+                    theme.line_number
+                };
 
+                queue!(stdout, SetForegroundColor(line_num_color.to_crossterm()))?;
                 queue!(stdout, Print(format!("{:>3} ", line_num)))?;
-                queue!(stdout, SetForegroundColor(Color::Reset))?;
 
+                // Line content
                 let line = pane.buffer.line(line_idx);
                 let line_str: String = line.chars().take(text_width).collect();
                 let content = line_str.trim_end_matches('\n').to_string();
@@ -212,17 +210,18 @@ impl Renderer {
                     .take(text_width)
                     .collect();
 
-                if !is_focused {
-                    queue!(stdout, SetForegroundColor(Color::DarkGrey))?;
-                }
+                let text_color = if is_focused {
+                    theme.foreground
+                } else {
+                    theme.line_number // Dim unfocused panes
+                };
+
+                queue!(stdout, SetForegroundColor(text_color.to_crossterm()))?;
                 queue!(stdout, Print(&padded))?;
-                if !is_focused {
-                    queue!(stdout, SetForegroundColor(Color::Reset))?;
-                }
             } else {
-                queue!(stdout, SetForegroundColor(Color::DarkGrey))?;
+                // Empty line indicator
+                queue!(stdout, SetForegroundColor(theme.line_number.to_crossterm()))?;
                 queue!(stdout, Print("  ~ "))?;
-                queue!(stdout, SetForegroundColor(Color::Reset))?;
 
                 let blank = " ".repeat(text_width);
                 queue!(stdout, Print(&blank))?;
@@ -238,12 +237,18 @@ impl Renderer {
         workspace: &Workspace,
         rect: &Rect,
         is_focused: bool,
+        theme: &Theme,
     ) -> io::Result<()> {
+        queue!(
+            stdout,
+            SetBackgroundColor(theme.file_browser_bg.to_crossterm())
+        )?;
+
         // Title row
         queue!(stdout, MoveTo(rect.x, rect.y))?;
+        queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
         queue!(stdout, SetAttribute(Attribute::Bold))?;
         let title = " Files ";
-        let title: String = title.chars().take(rect.width as usize).collect();
         let padded: String = format!("{:width$}", title, width = rect.width as usize)
             .chars()
             .take(rect.width as usize)
@@ -257,12 +262,32 @@ impl Renderer {
         for row in 1..rect.height {
             let idx = row as usize - 1;
             queue!(stdout, MoveTo(rect.x, rect.y + row))?;
+            queue!(
+                stdout,
+                SetBackgroundColor(theme.file_browser_bg.to_crossterm())
+            )?;
 
             if let Some(entry) = file_browser.entries.get(idx) {
                 let is_selected = idx == file_browser.selected;
 
                 if is_selected && is_focused {
-                    queue!(stdout, SetAttribute(Attribute::Reverse))?;
+                    queue!(
+                        stdout,
+                        SetBackgroundColor(theme.file_browser_selected.to_crossterm())
+                    )?;
+                    queue!(stdout, SetForegroundColor(theme.background.to_crossterm()))?;
+                } else if entry.is_dir {
+                    queue!(
+                        stdout,
+                        SetForegroundColor(theme.file_browser_dir.to_crossterm())
+                    )?;
+                } else {
+                    let color = if is_focused {
+                        theme.file_browser_file
+                    } else {
+                        theme.line_number
+                    };
+                    queue!(stdout, SetForegroundColor(color.to_crossterm()))?;
                 }
 
                 let indent = "  ".repeat(entry.depth);
@@ -286,42 +311,78 @@ impl Renderer {
                     .take(available_width)
                     .collect();
 
-                if entry.is_dir {
-                    queue!(stdout, SetForegroundColor(Color::Blue))?;
-                } else if !is_focused {
-                    queue!(stdout, SetForegroundColor(Color::DarkGrey))?;
-                }
                 queue!(stdout, Print(&padded))?;
-                queue!(stdout, SetForegroundColor(Color::Reset))?;
-
-                if is_selected && is_focused {
-                    queue!(stdout, SetAttribute(Attribute::Reset))?;
-                }
             } else {
                 let blank = " ".repeat(rect.width as usize);
                 queue!(stdout, Print(&blank))?;
             }
         }
 
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
         Ok(())
     }
 
-    fn render_status_line(&self, stdout: &mut impl Write, workspace: &Workspace) -> io::Result<()> {
+    fn render_pane_labels(
+        &self,
+        stdout: &mut impl Write,
+        workspace: &Workspace,
+        pane_rects: &[(usize, Rect)],
+        theme: &Theme,
+    ) -> io::Result<()> {
+        let labeled_panes = workspace.get_editor_panes_with_labels();
+        for (label, pane_id) in labeled_panes {
+            if let Some((_, rect)) = pane_rects.iter().find(|(id, _)| *id == pane_id) {
+                let center_x = rect.x + rect.width / 2;
+                let center_y = rect.y + rect.height / 2;
+
+                queue!(stdout, MoveTo(center_x.saturating_sub(2), center_y))?;
+                queue!(stdout, SetForegroundColor(theme.background.to_crossterm()))?;
+                queue!(stdout, SetBackgroundColor(theme.cursor.to_crossterm()))?;
+                queue!(stdout, SetAttribute(Attribute::Bold))?;
+                queue!(stdout, Print(format!(" {} ", label.to_ascii_uppercase())))?;
+                queue!(stdout, SetAttribute(Attribute::Reset))?;
+                queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn render_status_line(
+        &self,
+        stdout: &mut impl Write,
+        workspace: &Workspace,
+        theme: &Theme,
+    ) -> io::Result<()> {
         let status_row = self.height.saturating_sub(1);
         queue!(stdout, MoveTo(0, status_row))?;
-        queue!(stdout, Clear(ClearType::CurrentLine))?;
 
+        // Command mode - just show the command
         if workspace.mode() == Mode::Command {
+            queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+            queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
+            queue!(stdout, Clear(ClearType::CurrentLine))?;
             queue!(stdout, Print(format!(":{}", workspace.command_buffer)))?;
             return Ok(());
         }
 
+        // Message - show prominently
         if let Some(ref msg) = workspace.message {
+            queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+            queue!(stdout, SetForegroundColor(theme.warning.to_crossterm()))?;
+            queue!(stdout, Clear(ClearType::CurrentLine))?;
             queue!(stdout, Print(msg))?;
             return Ok(());
         }
 
-        queue!(stdout, SetAttribute(Attribute::Reverse))?;
+        // Normal status bar
+        queue!(
+            stdout,
+            SetBackgroundColor(theme.status_bar_bg.to_crossterm())
+        )?;
+        queue!(
+            stdout,
+            SetForegroundColor(theme.status_bar_fg.to_crossterm())
+        )?;
 
         let pane = workspace.focused_pane();
         let mode = pane.mode.display();
@@ -352,8 +413,43 @@ impl Renderer {
         let status: String = status.chars().take(self.width as usize).collect();
 
         queue!(stdout, Print(status))?;
-        queue!(stdout, SetAttribute(Attribute::Reset))?;
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
 
+        Ok(())
+    }
+
+    fn position_cursor(
+        &self,
+        stdout: &mut impl Write,
+        workspace: &Workspace,
+        pane_rects: &[(usize, Rect)],
+        _theme: &Theme,
+    ) -> io::Result<()> {
+        let focused_pane = workspace.focused_pane();
+        if let Some((_, rect)) = pane_rects.iter().find(|(id, _)| *id == focused_pane.id) {
+            if workspace.mode() == Mode::Command {
+                let cmd_col = 1 + workspace.command_buffer.len() as u16;
+                let cmd_row = self.height.saturating_sub(1);
+                queue!(stdout, MoveTo(cmd_col, cmd_row))?;
+                queue!(stdout, SetCursorStyle::BlinkingBar)?;
+                queue!(stdout, Show)?;
+            } else if focused_pane.kind == PaneKind::Editor {
+                let gutter_width = 4u16;
+                let cursor_x = rect.x + gutter_width + focused_pane.cursor.col as u16;
+                let cursor_y =
+                    rect.y + (focused_pane.cursor.line - focused_pane.scroll_offset) as u16;
+                queue!(stdout, MoveTo(cursor_x, cursor_y))?;
+
+                let cursor_style = match focused_pane.mode {
+                    Mode::Insert => SetCursorStyle::BlinkingBar,
+                    _ => SetCursorStyle::SteadyBlock,
+                };
+                queue!(stdout, cursor_style)?;
+                queue!(stdout, Show)?;
+            } else {
+                queue!(stdout, Hide)?;
+            }
+        }
         Ok(())
     }
 }

@@ -392,7 +392,11 @@ fn execute_action(
 
 fn execute_command(workspace: &mut Workspace) {
     let cmd = workspace.command_buffer.trim().to_string();
-    match cmd.as_str() {
+    let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
+    let command = parts.first().map(|s| *s).unwrap_or("");
+    let args = parts.get(1).map(|s| *s);
+
+    match command {
         "q" | "quit" => {
             // Close current pane, or quit if last pane
             if !workspace.close_focused_pane() {
@@ -416,6 +420,27 @@ fn execute_command(workspace: &mut Workspace) {
         "sp" | "split" => workspace.split_horizontal(),
         "close" => {
             workspace.close_focused_pane();
+        }
+        "theme" => {
+            if let Some(name) = args {
+                let available = crate::theme::list_builtin_themes();
+                if available.contains(&name) {
+                    workspace.set_theme(name);
+                    workspace.set_message(format!("Theme: {}", name));
+                } else {
+                    workspace.set_message(format!(
+                        "Unknown theme: {}. Available: {}",
+                        name,
+                        available.join(", ")
+                    ));
+                }
+            } else {
+                workspace.set_message(format!("Current theme: {}", workspace.theme_name));
+            }
+        }
+        "themes" => {
+            let themes = crate::theme::list_builtin_themes().join(", ");
+            workspace.set_message(format!("Available themes: {}", themes));
         }
         "" => {}
         _ => {

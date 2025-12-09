@@ -7,6 +7,7 @@ use futures::StreamExt;
 mod editor;
 mod input;
 mod render;
+mod theme;
 
 use editor::Workspace;
 use input::InputState;
@@ -30,7 +31,8 @@ async fn main() -> std::io::Result<()> {
     let mut input_state = InputState::new();
 
     // Initial render
-    renderer.render(&workspace)?;
+    let current_theme = theme::get_builtin_theme(&workspace.theme_name).unwrap_or_default();
+    renderer.render(&workspace, &current_theme)?;
 
     // Event stream for async key reading
     let mut event_stream = EventStream::new();
@@ -45,7 +47,9 @@ async fn main() -> std::io::Result<()> {
                 let text_height = renderer.text_height(&workspace);
                 workspace.focused_pane_mut().adjust_scroll(text_height);
 
-                renderer.render(&workspace)?;
+                // Get current theme (may have changed via :theme command)
+                let current_theme = theme::get_builtin_theme(&workspace.theme_name).unwrap_or_default();
+                renderer.render(&workspace, &current_theme)?;
             }
         }
     }
