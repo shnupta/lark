@@ -54,6 +54,9 @@ impl Renderer {
     pub fn render(&self, workspace: &Workspace) -> io::Result<()> {
         let mut stdout = stdout();
 
+        // Hide cursor during redraw to prevent flicker
+        queue!(stdout, Hide)?;
+
         // Calculate layout - reserve 1 line for global status
         let content_area = Rect::new(0, 0, self.width, self.height.saturating_sub(1));
         let pane_rects = workspace.calculate_rects(content_area);
