@@ -64,3 +64,61 @@ impl Pane {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_editor_pane_has_correct_defaults() {
+        let pane = Pane::new_editor(0);
+        assert_eq!(pane.id, 0);
+        assert_eq!(pane.kind, PaneKind::Editor);
+        assert_eq!(pane.mode, Mode::Normal);
+        assert_eq!(pane.scroll_offset, 0);
+    }
+
+    #[test]
+    fn new_file_browser_pane_has_correct_mode() {
+        let pane = Pane::new_file_browser(1);
+        assert_eq!(pane.kind, PaneKind::FileBrowser);
+        assert_eq!(pane.mode, Mode::FileBrowser);
+    }
+
+    #[test]
+    fn adjust_scroll_scrolls_down_when_cursor_below_viewport() {
+        let mut pane = Pane::new_editor(0);
+        pane.cursor.line = 25;
+        pane.scroll_offset = 0;
+
+        pane.adjust_scroll(20); // viewport of 20 lines
+
+        // Cursor at 25 should scroll so cursor is visible
+        // scroll_offset = cursor - viewport + 1 = 25 - 20 + 1 = 6
+        assert_eq!(pane.scroll_offset, 6);
+    }
+
+    #[test]
+    fn adjust_scroll_scrolls_up_when_cursor_above_viewport() {
+        let mut pane = Pane::new_editor(0);
+        pane.cursor.line = 5;
+        pane.scroll_offset = 10;
+
+        pane.adjust_scroll(20);
+
+        // Cursor at 5 is above scroll_offset of 10, so scroll up
+        assert_eq!(pane.scroll_offset, 5);
+    }
+
+    #[test]
+    fn adjust_scroll_does_nothing_when_cursor_visible() {
+        let mut pane = Pane::new_editor(0);
+        pane.cursor.line = 10;
+        pane.scroll_offset = 5;
+
+        pane.adjust_scroll(20);
+
+        // Cursor at 10 is within viewport (5..25), no change needed
+        assert_eq!(pane.scroll_offset, 5);
+    }
+}

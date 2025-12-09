@@ -197,3 +197,123 @@ impl Default for Workspace {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_workspace_has_one_tab() {
+        let ws = Workspace::new();
+        assert_eq!(ws.tab_count(), 1);
+        assert_eq!(ws.active_tab, 0);
+    }
+
+    #[test]
+    fn new_tab_adds_and_focuses() {
+        let mut ws = Workspace::new();
+        ws.new_tab();
+
+        assert_eq!(ws.tab_count(), 2);
+        assert_eq!(ws.active_tab, 1);
+    }
+
+    #[test]
+    fn next_tab_cycles_forward() {
+        let mut ws = Workspace::new();
+        ws.new_tab();
+        ws.new_tab();
+        // Now at tab 2 (index 2)
+
+        ws.active_tab = 0;
+        ws.next_tab();
+        assert_eq!(ws.active_tab, 1);
+
+        ws.next_tab();
+        assert_eq!(ws.active_tab, 2);
+
+        ws.next_tab();
+        assert_eq!(ws.active_tab, 0); // wraps around
+    }
+
+    #[test]
+    fn prev_tab_cycles_backward() {
+        let mut ws = Workspace::new();
+        ws.new_tab();
+        ws.new_tab();
+
+        ws.active_tab = 0;
+        ws.prev_tab();
+        assert_eq!(ws.active_tab, 2); // wraps to last
+
+        ws.prev_tab();
+        assert_eq!(ws.active_tab, 1);
+    }
+
+    #[test]
+    fn close_tab_removes_current() {
+        let mut ws = Workspace::new();
+        ws.new_tab();
+        ws.new_tab();
+        assert_eq!(ws.tab_count(), 3);
+        ws.active_tab = 1;
+
+        let closed = ws.close_tab();
+
+        assert!(closed);
+        assert_eq!(ws.tab_count(), 2);
+        assert_eq!(ws.active_tab, 1); // stays at 1 (now points to what was tab 2)
+    }
+
+    #[test]
+    fn close_tab_adjusts_index_when_at_end() {
+        let mut ws = Workspace::new();
+        ws.new_tab();
+        // active_tab is now 1 (last tab)
+
+        let closed = ws.close_tab();
+
+        assert!(closed);
+        assert_eq!(ws.tab_count(), 1);
+        assert_eq!(ws.active_tab, 0); // adjusted to last valid index
+    }
+
+    #[test]
+    fn close_tab_fails_with_single_tab() {
+        let mut ws = Workspace::new();
+
+        let closed = ws.close_tab();
+
+        assert!(!closed);
+        assert_eq!(ws.tab_count(), 1);
+    }
+
+    #[test]
+    fn next_tab_does_nothing_with_single_tab() {
+        let mut ws = Workspace::new();
+        ws.next_tab();
+        assert_eq!(ws.active_tab, 0);
+    }
+
+    #[test]
+    fn message_can_be_set_and_cleared() {
+        let mut ws = Workspace::new();
+        assert!(ws.message.is_none());
+
+        ws.set_message("Hello");
+        assert_eq!(ws.message, Some("Hello".to_string()));
+
+        ws.clear_message();
+        assert!(ws.message.is_none());
+    }
+
+    #[test]
+    fn quit_sets_running_to_false() {
+        let mut ws = Workspace::new();
+        assert!(ws.running);
+
+        ws.quit();
+
+        assert!(!ws.running);
+    }
+}

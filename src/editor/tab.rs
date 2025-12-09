@@ -246,3 +246,119 @@ impl Default for Tab {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_tab_has_one_pane() {
+        let tab = Tab::new();
+        assert_eq!(tab.panes.len(), 1);
+        assert_eq!(tab.focused_pane_id, 0);
+    }
+
+    #[test]
+    fn split_vertical_adds_pane() {
+        let mut tab = Tab::new();
+        tab.split_vertical();
+
+        assert_eq!(tab.panes.len(), 2);
+        // New pane should exist
+        assert!(tab.panes.contains_key(&1));
+    }
+
+    #[test]
+    fn split_horizontal_adds_pane() {
+        let mut tab = Tab::new();
+        tab.split_horizontal();
+
+        assert_eq!(tab.panes.len(), 2);
+    }
+
+    #[test]
+    fn focus_next_cycles_through_panes() {
+        let mut tab = Tab::new();
+        tab.split_vertical();
+        // Now have 2 panes
+
+        let initial = tab.focused_pane_id;
+        tab.focus_next();
+        let after_first = tab.focused_pane_id;
+
+        // Should have changed
+        assert_ne!(initial, after_first);
+
+        // Should cycle back
+        tab.focus_next();
+        assert_eq!(tab.focused_pane_id, initial);
+    }
+
+    #[test]
+    fn close_focused_pane_removes_pane() {
+        let mut tab = Tab::new();
+        tab.split_vertical();
+        assert_eq!(tab.panes.len(), 2);
+
+        let closed = tab.close_focused_pane();
+        assert!(closed);
+        assert_eq!(tab.panes.len(), 1);
+    }
+
+    #[test]
+    fn close_focused_pane_fails_with_single_pane() {
+        let mut tab = Tab::new();
+
+        let closed = tab.close_focused_pane();
+        assert!(!closed);
+        assert_eq!(tab.panes.len(), 1);
+    }
+
+    #[test]
+    fn get_editor_panes_with_labels_assigns_letters() {
+        let mut tab = Tab::new();
+        tab.split_vertical();
+        tab.split_vertical();
+
+        let labeled = tab.get_editor_panes_with_labels();
+
+        assert_eq!(labeled.len(), 3);
+        assert_eq!(labeled[0].0, 'a');
+        assert_eq!(labeled[1].0, 'b');
+        assert_eq!(labeled[2].0, 'c');
+    }
+
+    #[test]
+    fn focus_pane_by_label_works() {
+        let mut tab = Tab::new();
+        tab.split_vertical();
+
+        tab.focused_pane_id = 0;
+        let focused = tab.focus_pane_by_label('b');
+
+        assert!(focused);
+        assert_eq!(tab.focused_pane_id, 1);
+    }
+
+    #[test]
+    fn focus_pane_by_invalid_label_fails() {
+        let mut tab = Tab::new();
+
+        let focused = tab.focus_pane_by_label('z');
+        assert!(!focused);
+    }
+
+    #[test]
+    fn toggle_file_browser_opens_and_closes() {
+        let mut tab = Tab::new();
+        assert!(tab.file_browser_pane_id.is_none());
+
+        tab.toggle_file_browser();
+        assert!(tab.file_browser_pane_id.is_some());
+        assert_eq!(tab.panes.len(), 2);
+
+        tab.toggle_file_browser();
+        assert!(tab.file_browser_pane_id.is_none());
+        assert_eq!(tab.panes.len(), 1);
+    }
+}

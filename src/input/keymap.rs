@@ -384,3 +384,148 @@ pub enum KeyResult {
     Unhandled,
     Cancelled,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_key_returns_action() {
+        let mut state = KeySequenceState::new();
+        let result = state.process_key(Key::char('j'), "normal");
+
+        match result {
+            KeyResult::Action(Action::MoveDown, 1) => {}
+            _ => panic!("Expected MoveDown action with count 1"),
+        }
+    }
+
+    #[test]
+    fn gg_returns_move_to_first_line() {
+        let mut state = KeySequenceState::new();
+
+        // First 'g' should be pending
+        let result = state.process_key(Key::char('g'), "normal");
+        assert!(matches!(result, KeyResult::Pending));
+
+        // Second 'g' should complete
+        let result = state.process_key(Key::char('g'), "normal");
+        match result {
+            KeyResult::Action(Action::MoveToFirstLine, 1) => {}
+            _ => panic!("Expected MoveToFirstLine action"),
+        }
+    }
+
+    #[test]
+    fn count_prefix_works() {
+        let mut state = KeySequenceState::new();
+
+        // Type "123j"
+        assert!(matches!(
+            state.process_key(Key::char('1'), "normal"),
+            KeyResult::Pending
+        ));
+        assert!(matches!(
+            state.process_key(Key::char('2'), "normal"),
+            KeyResult::Pending
+        ));
+        assert!(matches!(
+            state.process_key(Key::char('3'), "normal"),
+            KeyResult::Pending
+        ));
+
+        let result = state.process_key(Key::char('j'), "normal");
+        match result {
+            KeyResult::Action(Action::MoveDown, 123) => {}
+            _ => panic!("Expected MoveDown with count 123, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn ctrl_w_sequence_works() {
+        let mut state = KeySequenceState::new();
+
+        // Ctrl-W should be pending
+        let result = state.process_key(Key::ctrl('w'), "normal");
+        assert!(matches!(result, KeyResult::Pending));
+
+        // 'v' should complete with SplitVertical
+        let result = state.process_key(Key::char('v'), "normal");
+        match result {
+            KeyResult::Action(Action::SplitVertical, 1) => {}
+            _ => panic!("Expected SplitVertical action"),
+        }
+    }
+
+    #[test]
+    fn tab_commands_work() {
+        let mut state = KeySequenceState::new();
+
+        // tt should create new tab
+        assert!(matches!(
+            state.process_key(Key::char('t'), "normal"),
+            KeyResult::Pending
+        ));
+        match state.process_key(Key::char('t'), "normal") {
+            KeyResult::Action(Action::NewTab, 1) => {}
+            _ => panic!("Expected NewTab action"),
+        }
+
+        // tn should go to next tab
+        assert!(matches!(
+            state.process_key(Key::char('t'), "normal"),
+            KeyResult::Pending
+        ));
+        match state.process_key(Key::char('n'), "normal") {
+            KeyResult::Action(Action::NextTab, 1) => {}
+            _ => panic!("Expected NextTab action"),
+        }
+    }
+
+    #[test]
+    fn insert_mode_esc_returns_to_normal() {
+        let mut state = KeySequenceState::new();
+
+        let result = state.process_key(Key::new(KeyCode::Esc, KeyModifiers::NONE), "insert");
+        match result {
+            KeyResult::Action(Action::EnterNormalMode, 1) => {}
+            _ => panic!("Expected EnterNormalMode action"),
+        }
+    }
+
+    #[test]
+    fn pending_display_shows_count_and_keys() {
+        let mut state = KeySequenceState::new();
+        state.process_key(Key::char('5'), "normal");
+        state.process_key(Key::char('g'), "normal");
+
+        assert_eq!(state.pending_display(), "5g");
+    }
+
+    #[test]
+    fn zero_not_treated_as_count_when_first() {
+        let mut state = KeySequenceState::new();
+
+        // '0' as first key should be MoveToLineStart
+        let result = state.process_key(Key::char('0'), "normal");
+        match result {
+            KeyResult::Action(Action::MoveToLineStart, 1) => {}
+            _ => panic!("Expected MoveToLineStart action"),
+        }
+    }
+
+    #[test]
+    fn zero_treated_as_count_after_digit() {
+        let mut state = KeySequenceState::new();
+
+        // "10j" should move down 10 lines
+        state.process_key(Key::char('1'), "normal");
+        state.process_key(Key::char('0'), "normal");
+        let result = state.process_key(Key::char('j'), "normal");
+
+        match result {
+            KeyResult::Action(Action::MoveDown, 10) => {}
+            _ => panic!("Expected MoveDown with count 10"),
+        }
+    }
+}
