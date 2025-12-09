@@ -4,12 +4,14 @@ use std::path::PathBuf;
 use crossterm::event::EventStream;
 use futures::StreamExt;
 
+mod config;
 mod editor;
 mod finder;
 mod input;
 mod render;
 mod theme;
 
+use config::ConfigEngine;
 use editor::{FinderAction, Workspace};
 use finder::{FinderResult, GrepMatch};
 use input::InputState;
@@ -17,6 +19,13 @@ use render::Renderer;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Load configuration
+    let mut config = ConfigEngine::new();
+    if let Err(e) = config.load_default() {
+        eprintln!("Config error: {}", e);
+    }
+    let settings = config.settings();
+
     // Parse command line args
     let args: Vec<String> = env::args().collect();
     let mut workspace = if args.len() > 1 {
@@ -24,6 +33,9 @@ async fn main() -> std::io::Result<()> {
     } else {
         Workspace::new()
     };
+
+    // Apply settings from config
+    workspace.theme_name = settings.theme.clone();
 
     // Set up terminal
     Renderer::setup()?;

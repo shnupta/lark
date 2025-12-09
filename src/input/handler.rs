@@ -456,6 +456,20 @@ fn execute_command(workspace: &mut Workspace) {
             let themes = crate::theme::list_builtin_themes().join(", ");
             workspace.set_message(format!("Available themes: {}", themes));
         }
+        "source" => {
+            // Reload config file
+            let mut config = crate::config::ConfigEngine::new();
+            match config.load_default() {
+                Ok(_) => {
+                    let settings = config.settings();
+                    workspace.theme_name = settings.theme.clone();
+                    workspace.set_message("Config reloaded");
+                }
+                Err(e) => {
+                    workspace.set_message(format!("Config error: {}", e));
+                }
+            }
+        }
         "" => {}
         _ => {
             workspace.set_message(format!("Unknown command: {}", cmd));
