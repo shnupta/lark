@@ -11,7 +11,7 @@ pub enum PaneKind {
     FileBrowser,
 }
 
-/// A pane represents a single view in the editor
+/// A pane represents a single view in the editor (back to simple, no tabs)
 pub struct Pane {
     pub id: PaneId,
     pub kind: PaneKind,

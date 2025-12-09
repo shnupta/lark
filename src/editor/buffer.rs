@@ -35,6 +35,10 @@ impl Buffer {
         }
     }
 
+    pub fn path(&self) -> Option<&PathBuf> {
+        self.filepath.as_ref()
+    }
+
     pub fn save(&self) -> io::Result<()> {
         if !self.dirty {
             return Ok(());

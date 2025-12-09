@@ -140,8 +140,8 @@ fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputS
 fn handle_file_browser(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputState) {
     match key.code {
         KeyCode::Esc => workspace.toggle_file_browser(),
-        KeyCode::Char('j') | KeyCode::Down => workspace.file_browser.move_down(),
-        KeyCode::Char('k') | KeyCode::Up => workspace.file_browser.move_up(),
+        KeyCode::Char('j') | KeyCode::Down => workspace.file_browser_mut().move_down(),
+        KeyCode::Char('k') | KeyCode::Up => workspace.file_browser_mut().move_up(),
         KeyCode::Enter => {
             if let Some(path) = workspace.try_open_file_from_browser() {
                 let editor_panes = workspace.get_editor_panes_with_labels();
@@ -277,7 +277,6 @@ fn execute_action(
             Action::MoveWordBackward => move_word_backward(workspace.focused_pane_mut()),
             Action::MoveWordEnd => move_word_end(workspace.focused_pane_mut()),
             Action::PageDown => {
-                // Move half screen down (we'll use a fixed amount for now)
                 let pane = workspace.focused_pane_mut();
                 let line_count = pane.buffer.line_count();
                 for _ in 0..20 {
@@ -369,6 +368,20 @@ fn execute_action(
             // Pane selection
             Action::SelectPane(c) => {
                 workspace.focus_pane_by_label(c);
+            }
+
+            // Tabs
+            Action::NewTab => {
+                workspace.new_tab();
+            }
+            Action::NextTab => {
+                workspace.next_tab();
+            }
+            Action::PrevTab => {
+                workspace.prev_tab();
+            }
+            Action::CloseTab => {
+                workspace.close_tab();
             }
 
             // Other

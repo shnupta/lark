@@ -42,7 +42,7 @@ async fn main() -> std::io::Result<()> {
                 input::handle_event(&mut workspace, event, &mut input_state);
 
                 // Adjust scroll for focused pane
-                let text_height = renderer.text_height();
+                let text_height = renderer.text_height(&workspace);
                 workspace.focused_pane_mut().adjust_scroll(text_height);
 
                 renderer.render(&workspace)?;

@@ -68,6 +68,12 @@ pub enum Action {
     // Pane selection mode
     SelectPane(char),
 
+    // Tabs
+    NewTab,
+    NextTab,
+    PrevTab,
+    CloseTab,
+
     // Other
     Quit,
 }
@@ -253,6 +259,26 @@ impl KeySequenceState {
                     return MatchResult::Complete(Action::MoveToFirstLine);
                 }
                 return MatchResult::NoMatch;
+            }
+
+            // tt, tn, tp, tc - tab commands
+            if !pending.is_empty() && pending[0] == Key::char('t') {
+                if pending.len() == 1 {
+                    return MatchResult::Prefix;
+                }
+                if pending.len() == 2 {
+                    let action = match pending[1].code {
+                        KeyCode::Char('t') => Some(Action::NewTab),
+                        KeyCode::Char('n') => Some(Action::NextTab),
+                        KeyCode::Char('p') => Some(Action::PrevTab),
+                        KeyCode::Char('c') => Some(Action::CloseTab),
+                        _ => None,
+                    };
+                    return match action {
+                        Some(a) => MatchResult::Complete(a),
+                        None => MatchResult::NoMatch,
+                    };
+                }
             }
 
             // Single key commands

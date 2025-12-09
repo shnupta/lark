@@ -4,6 +4,7 @@ mod file_browser;
 mod layout;
 mod mode;
 mod pane;
+mod tab;
 mod workspace;
 
 pub use buffer::Buffer;
