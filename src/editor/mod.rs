@@ -1,11 +1,14 @@
 mod buffer;
 mod cursor;
-mod editor;
 mod file_browser;
+mod layout;
 mod mode;
+mod pane;
+mod workspace;
 
 pub use buffer::Buffer;
 pub use cursor::Cursor;
-pub use editor::Editor;
-pub use file_browser::FileBrowser;
+pub use layout::Rect;
 pub use mode::Mode;
+pub use pane::{Pane, PaneKind};
+pub use workspace::Workspace;

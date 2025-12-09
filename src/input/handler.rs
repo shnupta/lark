@@ -1,131 +1,510 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use std::path::PathBuf;
 
-use crate::editor::{Editor, Mode};
+use super::keymap::{Action, Key, KeyResult, KeySequenceState};
+use crate::editor::{Mode, PaneKind, Workspace};
 
-pub fn handle_event(editor: &mut Editor, event: Event) {
+pub struct InputState {
+    pub key_seq: KeySequenceState,
+    pub pending_file_path: Option<PathBuf>,
+}
+
+impl InputState {
+    pub fn new() -> Self {
+        Self {
+            key_seq: KeySequenceState::new(),
+            pending_file_path: None,
+        }
+    }
+}
+
+impl Default for InputState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub fn handle_event(workspace: &mut Workspace, event: Event, input_state: &mut InputState) {
     match event {
         Event::Key(key) => {
-            // Clear any message on keypress
-            editor.clear_message();
-            handle_key(editor, key);
+            workspace.clear_message();
+            handle_key(workspace, key, input_state);
         }
-        Event::Resize(_, _) => {
-            // Resize is handled by the renderer
-        }
+        Event::Resize(_, _) => {}
         _ => {}
     }
 }
 
-fn handle_key(editor: &mut Editor, key: KeyEvent) {
-    // Ctrl-G toggles file browser from any mode
-    if key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        editor.toggle_file_browser();
+fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputState) {
+    // Handle pane selection mode
+    if workspace.selecting_pane {
+        if let KeyCode::Char(c) = key.code {
+            if c.is_ascii_lowercase() {
+                if let Some(path) = input_state.pending_file_path.take() {
+                    workspace.open_file_in_pane(path, c);
+                }
+                workspace.selecting_pane = false;
+                return;
+            }
+        }
+        if key.code == KeyCode::Esc {
+            workspace.selecting_pane = false;
+            input_state.pending_file_path = None;
+            return;
+        }
         return;
     }
 
-    match editor.mode {
-        Mode::Normal => handle_normal_mode(editor, key),
-        Mode::Insert => handle_insert_mode(editor, key),
-        Mode::Command => handle_command_mode(editor, key),
-        Mode::FileBrowser => handle_file_browser_mode(editor, key),
-    }
-}
+    let pane = workspace.focused_pane();
+    let kind = pane.kind;
 
-fn handle_file_browser_mode(editor: &mut Editor, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => editor.mode = Mode::Normal,
-        KeyCode::Char('j') | KeyCode::Down => editor.file_browser.move_down(),
-        KeyCode::Char('k') | KeyCode::Up => editor.file_browser.move_up(),
-        KeyCode::Enter => editor.open_selected_file(),
-        _ => {}
-    }
-}
-
-fn handle_normal_mode(editor: &mut Editor, key: KeyEvent) {
-    match key.code {
-        // Basic movement
-        KeyCode::Char('h') | KeyCode::Left => editor.move_left(),
-        KeyCode::Char('j') | KeyCode::Down => editor.move_down(),
-        KeyCode::Char('k') | KeyCode::Up => editor.move_up(),
-        KeyCode::Char('l') | KeyCode::Right => editor.move_right(),
-
-        // Line motions
-        KeyCode::Char('0') => editor.move_to_line_start(),
-        KeyCode::Char('$') => editor.move_to_line_end(),
-        KeyCode::Char('g') => editor.move_to_first_line(), // TODO: proper gg
-        KeyCode::Char('G') => editor.move_to_last_line(),
-
-        // Word motions
-        KeyCode::Char('w') => editor.move_word_forward(),
-        KeyCode::Char('b') => editor.move_word_backward(),
-        KeyCode::Char('e') => editor.move_word_end(),
-
-        // Insert mode entry
-        KeyCode::Char('i') => editor.enter_insert_mode(),
-        KeyCode::Char('a') => editor.append(),
-        KeyCode::Char('A') => editor.append_end_of_line(),
-        KeyCode::Char('o') => editor.open_line_below(),
-        KeyCode::Char('O') => editor.open_line_above(),
-
-        // Command mode
-        KeyCode::Char(':') => editor.enter_command_mode(),
-
-        // Quick quit with Ctrl-C
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            editor.quit();
+    // File browser - handle navigation and file browser specific keys
+    if kind == PaneKind::FileBrowser {
+        // Window navigation works from file browser
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('w') {
+            // Start Ctrl-W sequence
+            let k = Key::new(key.code, key.modifiers);
+            match input_state.key_seq.process_key(k, "normal") {
+                KeyResult::Pending => {
+                    workspace.pending_keys = input_state.key_seq.pending_display();
+                }
+                _ => {}
+            }
+            return;
         }
 
-        _ => {}
-    }
-}
-
-fn handle_insert_mode(editor: &mut Editor, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => editor.enter_normal_mode(),
-
-        KeyCode::Char(c) => {
-            editor.insert_char(c);
-        }
-
-        KeyCode::Backspace => {
-            editor.delete_char_backward();
-        }
-
-        KeyCode::Enter => {
-            editor.insert_newline();
-        }
-
-        KeyCode::Left => editor.move_left(),
-        KeyCode::Right => editor.move_right(),
-        KeyCode::Up => editor.move_up(),
-        KeyCode::Down => editor.move_down(),
-
-        _ => {}
-    }
-}
-
-fn handle_command_mode(editor: &mut Editor, key: KeyEvent) {
-    match key.code {
-        KeyCode::Esc => {
-            editor.command_buffer.clear();
-            editor.enter_normal_mode();
-        }
-
-        KeyCode::Enter => {
-            editor.execute_command();
-        }
-
-        KeyCode::Backspace => {
-            editor.command_buffer.pop();
-            if editor.command_buffer.is_empty() {
-                editor.enter_normal_mode();
+        // Check if we're in the middle of Ctrl-W sequence
+        if !input_state.key_seq.pending_display().is_empty() {
+            let k = Key::new(key.code, key.modifiers);
+            match input_state.key_seq.process_key(k, "normal") {
+                KeyResult::Action(action, _) => {
+                    workspace.pending_keys.clear();
+                    execute_action(workspace, action, 1, input_state);
+                    return;
+                }
+                KeyResult::Pending => {
+                    workspace.pending_keys = input_state.key_seq.pending_display();
+                    return;
+                }
+                _ => {
+                    workspace.pending_keys.clear();
+                }
             }
         }
 
-        KeyCode::Char(c) => {
-            editor.command_buffer.push(c);
+        // Ctrl-G to toggle off
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('g') {
+            workspace.toggle_file_browser();
+            return;
         }
 
+        handle_file_browser(workspace, key, input_state);
+        return;
+    }
+
+    // Command mode
+    if workspace.mode() == Mode::Command {
+        handle_command_mode(workspace, key);
+        return;
+    }
+
+    // Insert mode - handle text input directly
+    if workspace.focused_pane().mode == Mode::Insert {
+        if handle_insert_mode(workspace, key) {
+            return;
+        }
+    }
+
+    // Use key sequence system
+    let mode_str = match workspace.focused_pane().mode {
+        Mode::Normal => "normal",
+        Mode::Insert => "insert",
+        _ => "normal",
+    };
+
+    let k = Key::new(key.code, key.modifiers);
+    match input_state.key_seq.process_key(k, mode_str) {
+        KeyResult::Action(action, count) => {
+            workspace.pending_keys.clear();
+            execute_action(workspace, action, count, input_state);
+        }
+        KeyResult::Pending => {
+            workspace.pending_keys = input_state.key_seq.pending_display();
+        }
+        KeyResult::Unhandled | KeyResult::Cancelled => {
+            workspace.pending_keys.clear();
+        }
+    }
+}
+
+fn handle_file_browser(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputState) {
+    match key.code {
+        KeyCode::Esc => workspace.toggle_file_browser(),
+        KeyCode::Char('j') | KeyCode::Down => workspace.file_browser.move_down(),
+        KeyCode::Char('k') | KeyCode::Up => workspace.file_browser.move_up(),
+        KeyCode::Enter => {
+            if let Some(path) = workspace.try_open_file_from_browser() {
+                let editor_panes = workspace.get_editor_panes_with_labels();
+                if editor_panes.len() > 1 {
+                    workspace.selecting_pane = true;
+                    input_state.pending_file_path = Some(path);
+                    let labels: String = editor_panes.iter().map(|(c, _)| *c).collect();
+                    workspace.set_message(format!("Select pane: {}", labels));
+                }
+            }
+        }
         _ => {}
+    }
+}
+
+fn handle_insert_mode(workspace: &mut Workspace, key: KeyEvent) -> bool {
+    let pane = workspace.focused_pane_mut();
+
+    match key.code {
+        KeyCode::Esc => {
+            pane.mode = Mode::Normal;
+            let line_len = pane.buffer.line_len(pane.cursor.line);
+            if pane.cursor.col > 0 && pane.cursor.col >= line_len {
+                pane.cursor.col = line_len.saturating_sub(1);
+            }
+            true
+        }
+        KeyCode::Char(c) => {
+            pane.buffer
+                .insert_char(pane.cursor.line, pane.cursor.col, c);
+            pane.cursor.col += 1;
+            true
+        }
+        KeyCode::Backspace => {
+            if pane.cursor.col > 0 {
+                pane.buffer
+                    .delete_char_backward(pane.cursor.line, pane.cursor.col);
+                pane.cursor.col -= 1;
+            } else if pane.cursor.line > 0 {
+                let prev_line_len = pane.buffer.line_len(pane.cursor.line - 1);
+                pane.buffer
+                    .delete_char_backward(pane.cursor.line, pane.cursor.col);
+                pane.cursor.line -= 1;
+                pane.cursor.col = prev_line_len;
+            }
+            true
+        }
+        KeyCode::Enter => {
+            pane.buffer
+                .insert_newline(pane.cursor.line, pane.cursor.col);
+            pane.cursor.line += 1;
+            pane.cursor.col = 0;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn handle_command_mode(workspace: &mut Workspace, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            workspace.command_buffer.clear();
+            workspace.focused_pane_mut().mode = Mode::Normal;
+        }
+        KeyCode::Enter => {
+            execute_command(workspace);
+        }
+        KeyCode::Backspace => {
+            workspace.command_buffer.pop();
+            if workspace.command_buffer.is_empty() {
+                workspace.focused_pane_mut().mode = Mode::Normal;
+            }
+        }
+        KeyCode::Char(c) => {
+            workspace.command_buffer.push(c);
+        }
+        _ => {}
+    }
+}
+
+fn execute_action(
+    workspace: &mut Workspace,
+    action: Action,
+    count: usize,
+    _input_state: &mut InputState,
+) {
+    for _ in 0..count {
+        match action.clone() {
+            // Movement
+            Action::MoveLeft => {
+                workspace.focused_pane_mut().cursor.move_left();
+            }
+            Action::MoveRight => {
+                let pane = workspace.focused_pane_mut();
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                pane.cursor.move_right(line_len);
+            }
+            Action::MoveUp => {
+                let pane = workspace.focused_pane_mut();
+                pane.cursor.move_up();
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                if pane.cursor.col > line_len {
+                    pane.cursor.col = line_len;
+                }
+            }
+            Action::MoveDown => {
+                let pane = workspace.focused_pane_mut();
+                let line_count = pane.buffer.line_count();
+                pane.cursor.move_down(line_count);
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                if pane.cursor.col > line_len {
+                    pane.cursor.col = line_len;
+                }
+            }
+            Action::MoveToLineStart => {
+                workspace.focused_pane_mut().cursor.col = 0;
+            }
+            Action::MoveToLineEnd => {
+                let pane = workspace.focused_pane_mut();
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                pane.cursor.col = line_len.saturating_sub(1);
+            }
+            Action::MoveToFirstLine => {
+                let pane = workspace.focused_pane_mut();
+                pane.cursor.line = 0;
+                pane.cursor.col = 0;
+            }
+            Action::MoveToLastLine => {
+                let pane = workspace.focused_pane_mut();
+                pane.cursor.line = pane.buffer.line_count().saturating_sub(1);
+            }
+            Action::MoveWordForward => move_word_forward(workspace.focused_pane_mut()),
+            Action::MoveWordBackward => move_word_backward(workspace.focused_pane_mut()),
+            Action::MoveWordEnd => move_word_end(workspace.focused_pane_mut()),
+            Action::PageDown => {
+                // Move half screen down (we'll use a fixed amount for now)
+                let pane = workspace.focused_pane_mut();
+                let line_count = pane.buffer.line_count();
+                for _ in 0..20 {
+                    pane.cursor.move_down(line_count);
+                }
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                if pane.cursor.col > line_len {
+                    pane.cursor.col = line_len;
+                }
+            }
+            Action::PageUp => {
+                let pane = workspace.focused_pane_mut();
+                for _ in 0..20 {
+                    pane.cursor.move_up();
+                }
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                if pane.cursor.col > line_len {
+                    pane.cursor.col = line_len;
+                }
+            }
+
+            // Mode changes
+            Action::EnterInsertMode => {
+                workspace.focused_pane_mut().mode = Mode::Insert;
+            }
+            Action::EnterInsertModeAppend => {
+                let pane = workspace.focused_pane_mut();
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                if pane.cursor.col < line_len {
+                    pane.cursor.col += 1;
+                }
+                pane.mode = Mode::Insert;
+            }
+            Action::EnterInsertModeAppendLine => {
+                let pane = workspace.focused_pane_mut();
+                pane.cursor.col = pane.buffer.line_len(pane.cursor.line);
+                pane.mode = Mode::Insert;
+            }
+            Action::EnterInsertModeOpenBelow => {
+                let pane = workspace.focused_pane_mut();
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                pane.cursor.col = line_len;
+                pane.buffer
+                    .insert_newline(pane.cursor.line, pane.cursor.col);
+                pane.cursor.line += 1;
+                pane.cursor.col = 0;
+                pane.mode = Mode::Insert;
+            }
+            Action::EnterInsertModeOpenAbove => {
+                let pane = workspace.focused_pane_mut();
+                pane.cursor.col = 0;
+                pane.buffer.insert_newline(pane.cursor.line, 0);
+                pane.mode = Mode::Insert;
+            }
+            Action::EnterNormalMode => {
+                let pane = workspace.focused_pane_mut();
+                pane.mode = Mode::Normal;
+                let line_len = pane.buffer.line_len(pane.cursor.line);
+                if pane.cursor.col > 0 && pane.cursor.col >= line_len {
+                    pane.cursor.col = line_len.saturating_sub(1);
+                }
+            }
+            Action::EnterCommandMode => {
+                workspace.focused_pane_mut().mode = Mode::Command;
+                workspace.command_buffer.clear();
+            }
+
+            // Window management
+            Action::SplitVertical => workspace.split_vertical(),
+            Action::SplitHorizontal => workspace.split_horizontal(),
+            Action::FocusNext => workspace.focus_next(),
+            Action::FocusLeft | Action::FocusRight | Action::FocusUp | Action::FocusDown => {
+                workspace.focus_next();
+            }
+
+            // File browser
+            Action::ToggleFileBrowser => workspace.toggle_file_browser(),
+            Action::FocusFileBrowser => workspace.focus_file_browser(),
+
+            // Leader key actions
+            Action::LeaderKey => {}
+            Action::FindFile => {
+                workspace.set_message("Find file: not yet implemented");
+            }
+            Action::Grep => {
+                workspace.set_message("Grep: not yet implemented");
+            }
+
+            // Pane selection
+            Action::SelectPane(c) => {
+                workspace.focus_pane_by_label(c);
+            }
+
+            // Other
+            Action::Quit => workspace.quit(),
+        }
+    }
+}
+
+fn execute_command(workspace: &mut Workspace) {
+    let cmd = workspace.command_buffer.trim().to_string();
+    match cmd.as_str() {
+        "q" | "quit" => {
+            // Close current pane, or quit if last pane
+            if !workspace.close_focused_pane() {
+                workspace.quit();
+            }
+        }
+        "qa" | "quitall" => workspace.quit(),
+        "w" | "write" => match workspace.focused_pane_mut().buffer.save() {
+            Ok(_) => workspace.set_message("Written"),
+            Err(e) => workspace.set_message(format!("Error: {}", e)),
+        },
+        "wq" => match workspace.focused_pane_mut().buffer.save() {
+            Ok(_) => {
+                if !workspace.close_focused_pane() {
+                    workspace.quit();
+                }
+            }
+            Err(e) => workspace.set_message(format!("Error: {}", e)),
+        },
+        "vs" | "vsplit" => workspace.split_vertical(),
+        "sp" | "split" => workspace.split_horizontal(),
+        "close" => {
+            workspace.close_focused_pane();
+        }
+        "" => {}
+        _ => {
+            workspace.set_message(format!("Unknown command: {}", cmd));
+        }
+    }
+    workspace.command_buffer.clear();
+    workspace.focused_pane_mut().mode = Mode::Normal;
+}
+
+// Word motion helpers
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn move_word_forward(pane: &mut crate::editor::Pane) {
+    let line_count = pane.buffer.line_count();
+
+    while let Some(c) = pane.buffer.char_at(pane.cursor.line, pane.cursor.col) {
+        if !is_word_char(c) {
+            break;
+        }
+        pane.cursor.col += 1;
+    }
+
+    loop {
+        match pane.buffer.char_at(pane.cursor.line, pane.cursor.col) {
+            Some(c) if is_word_char(c) => break,
+            Some(_) => pane.cursor.col += 1,
+            None => {
+                if pane.cursor.line + 1 < line_count {
+                    pane.cursor.line += 1;
+                    pane.cursor.col = 0;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn move_word_backward(pane: &mut crate::editor::Pane) {
+    if pane.cursor.col > 0 {
+        pane.cursor.col -= 1;
+    } else if pane.cursor.line > 0 {
+        pane.cursor.line -= 1;
+        pane.cursor.col = pane.buffer.line_len(pane.cursor.line).saturating_sub(1);
+    }
+
+    loop {
+        match pane.buffer.char_at(pane.cursor.line, pane.cursor.col) {
+            Some(c) if is_word_char(c) => break,
+            Some(_) if pane.cursor.col > 0 => pane.cursor.col -= 1,
+            _ if pane.cursor.line > 0 => {
+                pane.cursor.line -= 1;
+                pane.cursor.col = pane.buffer.line_len(pane.cursor.line).saturating_sub(1);
+            }
+            _ => return,
+        }
+    }
+
+    while pane.cursor.col > 0 {
+        if let Some(c) = pane.buffer.char_at(pane.cursor.line, pane.cursor.col - 1) {
+            if is_word_char(c) {
+                pane.cursor.col -= 1;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+fn move_word_end(pane: &mut crate::editor::Pane) {
+    let line_count = pane.buffer.line_count();
+    pane.cursor.col += 1;
+
+    loop {
+        match pane.buffer.char_at(pane.cursor.line, pane.cursor.col) {
+            Some(c) if is_word_char(c) => break,
+            Some(_) => pane.cursor.col += 1,
+            None => {
+                if pane.cursor.line + 1 < line_count {
+                    pane.cursor.line += 1;
+                    pane.cursor.col = 0;
+                } else {
+                    let line_len = pane.buffer.line_len(pane.cursor.line);
+                    if pane.cursor.col > line_len {
+                        pane.cursor.col = line_len;
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    while let Some(c) = pane.buffer.char_at(pane.cursor.line, pane.cursor.col + 1) {
+        if is_word_char(c) {
+            pane.cursor.col += 1;
+        } else {
+            break;
+        }
     }
 }

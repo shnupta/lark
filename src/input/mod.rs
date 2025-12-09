@@ -1,3 +1,4 @@
 mod handler;
+mod keymap;
 
-pub use handler::handle_event;
+pub use handler::{InputState, handle_event};
