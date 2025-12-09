@@ -2,7 +2,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 
 use super::keymap::{Action, Key, KeyResult, KeySequenceState};
-use crate::editor::{Mode, PaneKind, Workspace};
+use crate::editor::{Direction, FinderAction, Mode, PaneKind, Workspace};
 
 pub struct InputState {
     pub key_seq: KeySequenceState,
@@ -138,10 +138,23 @@ fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputS
 }
 
 fn handle_file_browser(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputState) {
+    // Ctrl+T to open in new tab
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('t') {
+        if let Some(path) = workspace.file_browser_mut().select() {
+            workspace.open_file_in_new_tab(path);
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Esc => workspace.toggle_file_browser(),
         KeyCode::Char('j') | KeyCode::Down => workspace.file_browser_mut().move_down(),
         KeyCode::Char('k') | KeyCode::Up => workspace.file_browser_mut().move_up(),
+        KeyCode::Char(':') => {
+            // Enter command mode even from file browser
+            workspace.focused_pane_mut().mode = Mode::Command;
+            workspace.command_buffer.clear();
+        }
         KeyCode::Enter => {
             if let Some(path) = workspace.try_open_file_from_browser() {
                 let editor_panes = workspace.get_editor_panes_with_labels();
@@ -348,21 +361,22 @@ fn execute_action(
             Action::SplitVertical => workspace.split_vertical(),
             Action::SplitHorizontal => workspace.split_horizontal(),
             Action::FocusNext => workspace.focus_next(),
-            Action::FocusLeft | Action::FocusRight | Action::FocusUp | Action::FocusDown => {
-                workspace.focus_next();
-            }
+            Action::FocusLeft => workspace.focus_direction(Direction::Left),
+            Action::FocusRight => workspace.focus_direction(Direction::Right),
+            Action::FocusUp => workspace.focus_direction(Direction::Up),
+            Action::FocusDown => workspace.focus_direction(Direction::Down),
 
             // File browser
             Action::ToggleFileBrowser => workspace.toggle_file_browser(),
             Action::FocusFileBrowser => workspace.focus_file_browser(),
 
-            // Leader key actions
-            Action::LeaderKey => {}
+            // Finder actions
             Action::FindFile => {
-                workspace.set_message("Find file: not yet implemented");
+                workspace.pending_finder = Some(FinderAction::FindFile);
             }
             Action::Grep => {
-                workspace.set_message("Grep: not yet implemented");
+                // For now, grep the word under cursor (or prompt for pattern)
+                workspace.pending_finder = Some(FinderAction::Grep(String::new()));
             }
 
             // Pane selection

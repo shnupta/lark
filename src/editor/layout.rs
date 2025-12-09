@@ -26,27 +26,31 @@ impl Rect {
         }
     }
 
-    /// Split this rect horizontally (top/bottom)
+    /// Split this rect horizontally (top/bottom) with 1 row for separator
     pub fn split_horizontal(&self, ratio: f32) -> (Rect, Rect) {
-        let split_y = self.y + (self.height as f32 * ratio) as u16;
-        let top = Rect::new(self.x, self.y, self.width, split_y - self.y);
+        // Reserve 1 row for the separator between panes
+        let available_height = self.height.saturating_sub(1);
+        let top_height = (available_height as f32 * ratio) as u16;
+        let top = Rect::new(self.x, self.y, self.width, top_height);
         let bottom = Rect::new(
             self.x,
-            split_y,
+            self.y + top_height + 1, // +1 for separator row
             self.width,
-            self.height - (split_y - self.y),
+            available_height - top_height,
         );
         (top, bottom)
     }
 
-    /// Split this rect vertically (left/right)
+    /// Split this rect vertically (left/right) with 1 column for separator
     pub fn split_vertical(&self, ratio: f32) -> (Rect, Rect) {
-        let split_x = self.x + (self.width as f32 * ratio) as u16;
-        let left = Rect::new(self.x, self.y, split_x - self.x, self.height);
+        // Reserve 1 column for the separator between panes
+        let available_width = self.width.saturating_sub(1);
+        let left_width = (available_width as f32 * ratio) as u16;
+        let left = Rect::new(self.x, self.y, left_width, self.height);
         let right = Rect::new(
-            split_x,
+            self.x + left_width + 1, // +1 for separator column
             self.y,
-            self.width - (split_x - self.x),
+            available_width - left_width,
             self.height,
         );
         (left, right)
@@ -130,6 +134,15 @@ impl LayoutNode {
     }
 }
 
+/// Direction for navigation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 /// The layout manager
 pub struct Layout {
     pub root: LayoutNode,
@@ -148,6 +161,92 @@ impl Layout {
 
     pub fn pane_ids(&self) -> Vec<PaneId> {
         self.root.collect_pane_ids()
+    }
+
+    /// Find the pane in the given direction from the current pane
+    pub fn find_pane_in_direction(
+        &self,
+        current_id: PaneId,
+        direction: Direction,
+        area: Rect,
+    ) -> Option<PaneId> {
+        let rects = self.calculate_rects(area);
+
+        // Find current pane's rect
+        let current_rect = rects.iter().find(|(id, _)| *id == current_id)?.1;
+
+        let cur_left = current_rect.x;
+        let cur_right = current_rect.x + current_rect.width;
+        let cur_top = current_rect.y;
+        let cur_bottom = current_rect.y + current_rect.height;
+
+        let mut best_candidate: Option<(PaneId, i32)> = None;
+
+        for (id, rect) in &rects {
+            if *id == current_id {
+                continue;
+            }
+
+            let left = rect.x;
+            let right = rect.x + rect.width;
+            let top = rect.y;
+            let bottom = rect.y + rect.height;
+
+            // Check horizontal overlap (for up/down navigation)
+            let h_overlap = left < cur_right && right > cur_left;
+            // Check vertical overlap (for left/right navigation)
+            let v_overlap = top < cur_bottom && bottom > cur_top;
+
+            // Check if this pane is in the correct direction AND overlaps appropriately
+            let (is_valid, distance) = match direction {
+                Direction::Left => {
+                    // Must be to the left and have vertical overlap
+                    if right <= cur_left && v_overlap {
+                        let dist = (cur_left - right) as i32;
+                        (true, dist)
+                    } else {
+                        (false, 0)
+                    }
+                }
+                Direction::Right => {
+                    // Must be to the right and have vertical overlap
+                    if left >= cur_right && v_overlap {
+                        let dist = (left - cur_right) as i32;
+                        (true, dist)
+                    } else {
+                        (false, 0)
+                    }
+                }
+                Direction::Up => {
+                    // Must be above and have horizontal overlap
+                    if bottom <= cur_top && h_overlap {
+                        let dist = (cur_top - bottom) as i32;
+                        (true, dist)
+                    } else {
+                        (false, 0)
+                    }
+                }
+                Direction::Down => {
+                    // Must be below and have horizontal overlap
+                    if top >= cur_bottom && h_overlap {
+                        let dist = (top - cur_bottom) as i32;
+                        (true, dist)
+                    } else {
+                        (false, 0)
+                    }
+                }
+            };
+
+            if !is_valid {
+                continue;
+            }
+
+            if best_candidate.is_none() || distance < best_candidate.unwrap().1 {
+                best_candidate = Some((*id, distance));
+            }
+        }
+
+        best_candidate.map(|(id, _)| id)
     }
 
     /// Split the given pane, returning the new pane's position in the tree

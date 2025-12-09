@@ -48,13 +48,34 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn text_height(&self, workspace: &Workspace) -> usize {
-        let tab_bar_height = if workspace.tab_count() > 1 { 1 } else { 0 };
-        self.height.saturating_sub(1 + tab_bar_height) as usize
+    /// Calculate the height of the focused pane for scroll adjustment
+    pub fn focused_pane_height(&self, workspace: &Workspace) -> usize {
+        let has_tabs = workspace.tab_count() > 1;
+        let tab_bar_height = if has_tabs { 1u16 } else { 0 };
+        let content_area = Rect::new(
+            0,
+            tab_bar_height,
+            self.width,
+            self.height.saturating_sub(1 + tab_bar_height),
+        );
+        let pane_rects = workspace.calculate_rects(content_area);
+
+        // Find the focused pane's rect
+        for (pane_id, rect) in &pane_rects {
+            if workspace.is_focused(*pane_id) {
+                return rect.height as usize;
+            }
+        }
+
+        // Fallback to full content area
+        content_area.height as usize
     }
 
-    pub fn render(&self, workspace: &Workspace, theme: &Theme) -> io::Result<()> {
+    pub fn render(&self, workspace: &mut Workspace, theme: &Theme) -> io::Result<()> {
         let mut stdout = stdout();
+
+        // Update terminal size in workspace for directional navigation
+        workspace.terminal_size = (self.width, self.height);
 
         // Hide cursor during redraw to prevent flicker
         queue!(stdout, Hide)?;
@@ -82,20 +103,25 @@ impl Renderer {
         // Render each pane
         for (pane_id, rect) in &pane_rects {
             if let Some(pane) = workspace.pane(*pane_id) {
-                let is_focused = workspace.is_focused(*pane_id);
                 match pane.kind {
-                    PaneKind::Editor => {
-                        self.render_editor_pane(&mut stdout, pane, rect, is_focused, theme)?
+                    PaneKind::Editor => self.render_editor_pane(&mut stdout, pane, rect, theme)?,
+                    PaneKind::FileBrowser => {
+                        let is_focused = workspace.is_focused(*pane_id);
+                        self.render_file_browser_pane(
+                            &mut stdout,
+                            workspace,
+                            rect,
+                            is_focused,
+                            theme,
+                        )?
                     }
-                    PaneKind::FileBrowser => self.render_file_browser_pane(
-                        &mut stdout,
-                        workspace,
-                        rect,
-                        is_focused,
-                        theme,
-                    )?,
                 }
             }
+        }
+
+        // Render pane borders (only if there are multiple panes)
+        if pane_rects.len() > 1 {
+            self.render_pane_borders(&mut stdout, workspace, &pane_rects, theme)?;
         }
 
         // If selecting pane, show overlay labels
@@ -168,7 +194,6 @@ impl Renderer {
         stdout: &mut impl Write,
         pane: &crate::editor::Pane,
         rect: &Rect,
-        is_focused: bool,
         theme: &Theme,
     ) -> io::Result<()> {
         let line_count = pane.buffer.line_count();
@@ -210,13 +235,8 @@ impl Renderer {
                     .take(text_width)
                     .collect();
 
-                let text_color = if is_focused {
-                    theme.foreground
-                } else {
-                    theme.line_number // Dim unfocused panes
-                };
-
-                queue!(stdout, SetForegroundColor(text_color.to_crossterm()))?;
+                // Don't dim unfocused panes - keep same style
+                queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
                 queue!(stdout, Print(&padded))?;
             } else {
                 // Empty line indicator
@@ -319,6 +339,139 @@ impl Renderer {
         }
 
         queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+        Ok(())
+    }
+
+    fn render_pane_borders(
+        &self,
+        stdout: &mut impl Write,
+        workspace: &Workspace,
+        pane_rects: &[(usize, Rect)],
+        theme: &Theme,
+    ) -> io::Result<()> {
+        // Simple approach: draw separators without trying to connect them
+        // Active pane gets rounded corners at its border junctions
+
+        queue!(stdout, SetForegroundColor(theme.pane_border.to_crossterm()))?;
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+
+        // Draw all separators in inactive color
+        for (pane_id, rect) in pane_rects {
+            let sep_x = rect.x + rect.width;
+            let sep_y = rect.y + rect.height;
+
+            // Check for right neighbor - draw vertical separator
+            let has_right = pane_rects
+                .iter()
+                .any(|(id, r)| *id != *pane_id && r.x == sep_x + 1);
+            if has_right {
+                for y in rect.y..(rect.y + rect.height) {
+                    queue!(stdout, MoveTo(sep_x, y))?;
+                    queue!(stdout, Print("│"))?;
+                }
+            }
+
+            // Check for bottom neighbor - draw horizontal separator
+            let has_bottom = pane_rects
+                .iter()
+                .any(|(id, r)| *id != *pane_id && r.y == sep_y + 1);
+            if has_bottom {
+                for x in rect.x..(rect.x + rect.width) {
+                    queue!(stdout, MoveTo(x, sep_y))?;
+                    queue!(stdout, Print("─"))?;
+                }
+            }
+        }
+
+        // Second pass: redraw active pane's adjacent separators with rounded corners
+        for (pane_id, rect) in pane_rects {
+            if !workspace.is_focused(*pane_id) {
+                continue;
+            }
+
+            let sep_x = rect.x + rect.width;
+            let sep_y = rect.y + rect.height;
+
+            let has_right = pane_rects
+                .iter()
+                .any(|(id, r)| *id != *pane_id && r.x == sep_x + 1);
+            let has_bottom = pane_rects
+                .iter()
+                .any(|(id, r)| *id != *pane_id && r.y == sep_y + 1);
+            let has_left = pane_rects
+                .iter()
+                .any(|(id, r)| *id != *pane_id && r.x + r.width + 1 == rect.x);
+            let has_top = pane_rects
+                .iter()
+                .any(|(id, r)| *id != *pane_id && r.y + r.height + 1 == rect.y);
+
+            queue!(
+                stdout,
+                SetForegroundColor(theme.pane_border_active.to_crossterm())
+            )?;
+
+            // Draw left separator
+            if has_left && rect.x > 0 {
+                let left_x = rect.x - 1;
+                for y in rect.y..(rect.y + rect.height) {
+                    queue!(stdout, MoveTo(left_x, y))?;
+                    queue!(stdout, Print("│"))?;
+                }
+            }
+
+            // Draw right separator
+            if has_right {
+                for y in rect.y..(rect.y + rect.height) {
+                    queue!(stdout, MoveTo(sep_x, y))?;
+                    queue!(stdout, Print("│"))?;
+                }
+            }
+
+            // Draw top separator
+            if has_top && rect.y > 0 {
+                let top_y = rect.y - 1;
+                for x in rect.x..(rect.x + rect.width) {
+                    queue!(stdout, MoveTo(x, top_y))?;
+                    queue!(stdout, Print("─"))?;
+                }
+            }
+
+            // Draw bottom separator
+            if has_bottom {
+                for x in rect.x..(rect.x + rect.width) {
+                    queue!(stdout, MoveTo(x, sep_y))?;
+                    queue!(stdout, Print("─"))?;
+                }
+            }
+
+            // Draw rounded corners where borders meet
+            // Top-left corner
+            if has_left && has_top && rect.x > 0 && rect.y > 0 {
+                queue!(stdout, MoveTo(rect.x - 1, rect.y - 1))?;
+                queue!(stdout, Print("╭"))?;
+            }
+
+            // Top-right corner
+            if has_right && has_top && rect.y > 0 {
+                queue!(stdout, MoveTo(sep_x, rect.y - 1))?;
+                queue!(stdout, Print("╮"))?;
+            }
+
+            // Bottom-left corner
+            if has_left && has_bottom && rect.x > 0 {
+                queue!(stdout, MoveTo(rect.x - 1, sep_y))?;
+                queue!(stdout, Print("╰"))?;
+            }
+
+            // Bottom-right corner
+            if has_right && has_bottom {
+                queue!(stdout, MoveTo(sep_x, sep_y))?;
+                queue!(stdout, Print("╯"))?;
+            }
+
+            break;
+        }
+
         Ok(())
     }
 

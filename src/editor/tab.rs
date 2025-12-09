@@ -111,6 +111,15 @@ impl Tab {
         }
     }
 
+    pub fn focus_direction(&mut self, direction: super::layout::Direction, area: Rect) {
+        if let Some(target_id) =
+            self.layout
+                .find_pane_in_direction(self.focused_pane_id, direction, area)
+        {
+            self.focused_pane_id = target_id;
+        }
+    }
+
     pub fn get_editor_panes_with_labels(&self) -> Vec<(char, PaneId)> {
         self.layout
             .pane_ids()
@@ -148,6 +157,14 @@ impl Tab {
             }
         }
         false
+    }
+
+    pub fn open_file_in_focused_pane(&mut self, path: PathBuf) {
+        if let Some(pane) = self.panes.get_mut(&self.focused_pane_id) {
+            pane.buffer = Buffer::from_file(path);
+            pane.cursor = Cursor::new();
+            pane.scroll_offset = 0;
+        }
     }
 
     /// Close the current pane. Returns true if closed, false if it was the last pane.

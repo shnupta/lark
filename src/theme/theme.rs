@@ -63,6 +63,10 @@ pub struct Theme {
     pub file_browser_file: Color,
     pub file_browser_selected: Color,
 
+    // Pane borders
+    pub pane_border: Color,
+    pub pane_border_active: Color,
+
     // Syntax highlighting (for later tree-sitter integration)
     pub syntax_keyword: Style,
     pub syntax_string: Style,
@@ -105,6 +109,9 @@ impl Theme {
             file_browser_file: Color::from_hex("#ebdbb2").unwrap(),
             file_browser_selected: Color::from_hex("#fe8019").unwrap(),
 
+            pane_border: Color::from_hex("#504945").unwrap(),
+            pane_border_active: Color::from_hex("#fe8019").unwrap(),
+
             syntax_keyword: Style::new(Color::from_hex("#fb4934").unwrap()).bold(),
             syntax_string: Style::new(Color::from_hex("#b8bb26").unwrap()),
             syntax_number: Style::new(Color::from_hex("#d3869b").unwrap()),
@@ -144,6 +151,9 @@ impl Theme {
             file_browser_dir: Color::from_hex("#076678").unwrap(),
             file_browser_file: Color::from_hex("#3c3836").unwrap(),
             file_browser_selected: Color::from_hex("#d65d0e").unwrap(),
+
+            pane_border: Color::from_hex("#d5c4a1").unwrap(),
+            pane_border_active: Color::from_hex("#d65d0e").unwrap(),
 
             syntax_keyword: Style::new(Color::from_hex("#9d0006").unwrap()).bold(),
             syntax_string: Style::new(Color::from_hex("#79740e").unwrap()),
@@ -185,6 +195,9 @@ impl Theme {
             file_browser_file: Color::from_hex("#d8dee9").unwrap(),
             file_browser_selected: Color::from_hex("#88c0d0").unwrap(),
 
+            pane_border: Color::from_hex("#4c566a").unwrap(),
+            pane_border_active: Color::from_hex("#88c0d0").unwrap(),
+
             syntax_keyword: Style::new(Color::from_hex("#81a1c1").unwrap()).bold(),
             syntax_string: Style::new(Color::from_hex("#a3be8c").unwrap()),
             syntax_number: Style::new(Color::from_hex("#b48ead").unwrap()),
@@ -225,6 +238,9 @@ impl Theme {
             file_browser_file: Color::from_hex("#f8f8f2").unwrap(),
             file_browser_selected: Color::from_hex("#ff79c6").unwrap(),
 
+            pane_border: Color::from_hex("#44475a").unwrap(),
+            pane_border_active: Color::from_hex("#bd93f9").unwrap(),
+
             syntax_keyword: Style::new(Color::from_hex("#ff79c6").unwrap()).bold(),
             syntax_string: Style::new(Color::from_hex("#f1fa8c").unwrap()),
             syntax_number: Style::new(Color::from_hex("#bd93f9").unwrap()),
@@ -264,6 +280,9 @@ impl Theme {
             file_browser_dir: Color::from_hex("#268bd2").unwrap(),
             file_browser_file: Color::from_hex("#839496").unwrap(),
             file_browser_selected: Color::from_hex("#cb4b16").unwrap(),
+
+            pane_border: Color::from_hex("#586e75").unwrap(),
+            pane_border_active: Color::from_hex("#268bd2").unwrap(),
 
             syntax_keyword: Style::new(Color::from_hex("#859900").unwrap()).bold(),
             syntax_string: Style::new(Color::from_hex("#2aa198").unwrap()),

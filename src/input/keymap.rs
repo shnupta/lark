@@ -61,7 +61,6 @@ pub enum Action {
     FocusFileBrowser,
 
     // Leader sequences
-    LeaderKey,
     FindFile,
     Grep,
 
@@ -221,20 +220,15 @@ impl KeySequenceState {
             if pending.len() == 1 {
                 return MatchResult::Prefix;
             }
-            if pending.len() == 2 {
-                let action = match pending[1].code {
-                    KeyCode::Char('f') => Some(Action::LeaderKey), // Prefix for file commands
-                    KeyCode::Char('g') => Some(Action::Grep),
-                    KeyCode::Char('e') => Some(Action::FocusFileBrowser),
-                    _ => None,
-                };
-                if let Some(a) = action {
-                    if a == Action::LeaderKey {
-                        return MatchResult::Prefix;
-                    }
-                    return MatchResult::Complete(a);
-                }
+            // <leader>e - focus file browser
+            if pending.len() == 2 && pending[1] == Key::char('e') {
+                return MatchResult::Complete(Action::FocusFileBrowser);
             }
+            // <leader>f prefix for file commands
+            if pending.len() == 2 && pending[1] == Key::char('f') {
+                return MatchResult::Prefix;
+            }
+            // <leader>ff - find file, <leader>fg - grep
             if pending.len() == 3 && pending[1] == Key::char('f') {
                 let action = match pending[2].code {
                     KeyCode::Char('f') => Some(Action::FindFile),

@@ -1,9 +1,16 @@
 use std::path::PathBuf;
 
 use super::Mode;
-use super::layout::Rect;
+use super::layout::{Direction, Rect};
 use super::pane::PaneId;
 use super::tab::Tab;
+
+/// Pending finder action
+#[derive(Debug, Clone)]
+pub enum FinderAction {
+    FindFile,
+    Grep(String),
+}
 
 /// The workspace manages tabs, each containing panes
 pub struct Workspace {
@@ -15,6 +22,8 @@ pub struct Workspace {
     pub pending_keys: String,
     pub selecting_pane: bool,
     pub theme_name: String,
+    pub pending_finder: Option<FinderAction>,
+    pub terminal_size: (u16, u16), // (width, height)
 }
 
 impl Workspace {
@@ -28,6 +37,8 @@ impl Workspace {
             pending_keys: String::new(),
             selecting_pane: false,
             theme_name: "gruvbox-dark".to_string(),
+            pending_finder: None,
+            terminal_size: (80, 24),
         }
     }
 
@@ -41,6 +52,8 @@ impl Workspace {
             pending_keys: String::new(),
             selecting_pane: false,
             theme_name: "gruvbox-dark".to_string(),
+            pending_finder: None,
+            terminal_size: (80, 24),
         }
     }
 
@@ -98,6 +111,13 @@ impl Workspace {
         self.tab_mut().focus_next();
     }
 
+    pub fn focus_direction(&mut self, direction: Direction) {
+        // Calculate the pane area (below tab bar, above status line)
+        let (width, height) = self.terminal_size;
+        let pane_area = Rect::new(0, 1, width, height.saturating_sub(2));
+        self.tab_mut().focus_direction(direction, pane_area);
+    }
+
     pub fn get_editor_panes_with_labels(&self) -> Vec<(char, PaneId)> {
         self.tab().get_editor_panes_with_labels()
     }
@@ -110,6 +130,11 @@ impl Workspace {
         let result = self.tab_mut().open_file_in_pane(path, label);
         self.tab_mut().update_name();
         result
+    }
+
+    pub fn open_file_in_focused_pane(&mut self, path: PathBuf) {
+        self.tab_mut().open_file_in_focused_pane(path);
+        self.tab_mut().update_name();
     }
 
     pub fn close_focused_pane(&mut self) -> bool {
@@ -145,6 +170,11 @@ impl Workspace {
 
     pub fn new_tab(&mut self) {
         self.tabs.push(Tab::new());
+        self.active_tab = self.tabs.len() - 1;
+    }
+
+    pub fn open_file_in_new_tab(&mut self, path: PathBuf) {
+        self.tabs.push(Tab::with_file(path));
         self.active_tab = self.tabs.len() - 1;
     }
 
