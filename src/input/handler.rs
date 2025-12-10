@@ -147,7 +147,11 @@ fn handle_file_browser(workspace: &mut Workspace, key: KeyEvent, input_state: &m
     }
 
     match key.code {
-        KeyCode::Esc => workspace.toggle_file_browser(),
+        KeyCode::Esc => {
+            // Escape just clears any message, doesn't close file browser
+            // Use Ctrl+G to toggle file browser
+            workspace.clear_message();
+        }
         KeyCode::Char('j') | KeyCode::Down => workspace.file_browser_mut().move_down(),
         KeyCode::Char('k') | KeyCode::Up => workspace.file_browser_mut().move_up(),
         KeyCode::Char(':') => {

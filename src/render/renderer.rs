@@ -80,8 +80,9 @@ impl Renderer {
         // Hide cursor during redraw to prevent flicker
         queue!(stdout, Hide)?;
 
-        // Set background color for entire screen
+        // Clear screen and set background color to prevent leftover content
         queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+        queue!(stdout, Clear(ClearType::All))?;
 
         let has_tabs = workspace.tab_count() > 1;
         let tab_bar_height = if has_tabs { 1u16 } else { 0 };
