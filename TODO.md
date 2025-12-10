@@ -24,22 +24,35 @@
 
 ## Phase 3: Syntax Highlighting
 
+### Filetype System (TODO: Refactor)
+- [ ] Create a proper `Filetype` registry system
+- [ ] Filetypes defined in config files, not hardcoded in Rust
+- [ ] Each filetype specifies: extensions, grammar repo, LSP server, comment syntax, indent rules
+- [ ] Allow plugins/Rhai to register new filetypes dynamically
+- [ ] Use filetype everywhere: syntax, LSP, formatting, commenting, etc.
+- [ ] Similar to Neovim's filetype.lua / vim.filetype.add()
+
 ### Tree-sitter Integration
-- [ ] Add `tree-sitter` and language grammar crates
-- [ ] Create syntax module (`src/syntax/`)
-- [ ] Parse buffers with tree-sitter on load/edit
-- [ ] Map tree-sitter node types to theme syntax colors
+- [x] Add `tree-sitter` core crate (grammars installed separately)
+- [x] Create syntax module (`src/syntax/`)
+- [x] Highlighter with node type to highlight kind mapping
+- [x] Integrate highlighter with renderer (apply colors)
+- [x] Parse buffers with tree-sitter on file load
 - [ ] Incremental parsing on edits
-- [ ] Support languages: Rust, Python, JavaScript/TypeScript, Go, C/C++, Markdown
+- [ ] Support languages: Rust, Python, JavaScript/TypeScript, Go, C/C++, Markdown, JSON, TOML, Bash, Lua, Ruby, HTML, CSS, YAML
 
 ### Tree-sitter Grammar Manager
-- [ ] Grammar storage in `~/.config/lark/grammars/`
-- [ ] `:TSInstall <language>` - download and compile grammar
-- [ ] `:TSUpdate` - update all installed grammars
-- [ ] `:TSList` - list available/installed grammars
+- [x] Grammar storage in `~/.config/lark/grammars/`
+- [x] `:TSInstall <language>` - download and compile grammar
+- [x] `:TSUninstall <language>` - remove grammar
+- [x] `:TSList` - list available/installed grammars
+- [x] Compile grammars from source (uses system cc)
+- [x] `:TSUpdate` - reinstall all outdated grammars
+- [x] `:TSStatus` - show ABI version and outdated grammars
+- [x] ABI version tracking (metadata.json)
+- [x] Auto-reinstall when ABI version changes
 - [ ] Auto-install grammars on first use (optional)
-- [ ] Compile grammars from source (tree-sitter CLI integration)
-- [ ] Grammar version pinning
+- [ ] Allow arbitrary grammars via config (not just hardcoded list)
 
 ---
 

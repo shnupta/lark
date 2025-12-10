@@ -25,6 +25,8 @@ pub struct Workspace {
     pub theme_name: String,
     pub pending_finder: Option<FinderAction>,
     pub terminal_size: (u16, u16), // (width, height)
+    pub log: Vec<String>,          // Editor log messages
+    pub verbose: bool,             // Verbose logging mode
 }
 
 impl Workspace {
@@ -41,6 +43,8 @@ impl Workspace {
             theme_name: "gruvbox-dark".to_string(),
             pending_finder: None,
             terminal_size: (80, 24),
+            log: Vec::new(),
+            verbose: false,
         }
     }
 
@@ -57,7 +61,28 @@ impl Workspace {
             theme_name: "gruvbox-dark".to_string(),
             pending_finder: None,
             terminal_size: (80, 24),
+            log: Vec::new(),
+            verbose: false,
         }
+    }
+
+    /// Add a message to the log
+    pub fn log(&mut self, msg: impl Into<String>) {
+        let msg = msg.into();
+        self.log.push(msg.clone());
+        // Keep last 1000 messages
+        if self.log.len() > 1000 {
+            self.log.remove(0);
+        }
+        // In verbose mode, also show in message bar
+        if self.verbose {
+            self.message = Some(msg);
+        }
+    }
+
+    /// Get the log as a formatted string
+    pub fn get_log(&self) -> String {
+        self.log.join("\n")
     }
 
     // Tab access

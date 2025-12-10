@@ -80,9 +80,8 @@ impl Renderer {
         // Hide cursor during redraw to prevent flicker
         queue!(stdout, Hide)?;
 
-        // Clear screen and set background color to prevent leftover content
+        // Set background color (don't clear whole screen - causes flicker)
         queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
-        queue!(stdout, Clear(ClearType::All))?;
 
         let has_tabs = workspace.tab_count() > 1;
         let tab_bar_height = if has_tabs { 1u16 } else { 0 };
@@ -226,19 +225,37 @@ impl Renderer {
                 queue!(stdout, SetForegroundColor(line_num_color.to_crossterm()))?;
                 queue!(stdout, Print(format!("{:>3} ", line_num)))?;
 
-                // Line content
+                // Line content with syntax highlighting
                 let line = pane.buffer.line(line_idx);
-                let line_str: String = line.chars().take(text_width).collect();
-                let content = line_str.trim_end_matches('\n').to_string();
+                let line_str: String = line.chars().collect();
+                let content = line_str.trim_end_matches('\n');
 
-                let padded: String = format!("{:width$}", content, width = text_width)
-                    .chars()
-                    .take(text_width)
-                    .collect();
+                // Get syntax highlights for this line
+                let highlights = pane.highlighter.line_highlights(line_idx);
 
-                // Don't dim unfocused panes - keep same style
-                queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
-                queue!(stdout, Print(&padded))?;
+                // Render each character with appropriate color
+                let mut col = 0;
+                for ch in content.chars().take(text_width) {
+                    // Determine the color for this character
+                    let color = if let Some(hl) = highlights {
+                        let kind = hl.kind_at(col);
+                        self.highlight_kind_to_color(kind, theme)
+                    } else {
+                        theme.foreground
+                    };
+
+                    queue!(stdout, SetForegroundColor(color.to_crossterm()))?;
+                    queue!(stdout, Print(ch))?;
+                    col += ch.len_utf8(); // Use byte offset for highlight matching
+                }
+
+                // Pad the rest of the line
+                let displayed = content.chars().take(text_width).count();
+                if displayed < text_width {
+                    queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
+                    let padding = " ".repeat(text_width - displayed);
+                    queue!(stdout, Print(&padding))?;
+                }
             } else {
                 // Empty line indicator
                 queue!(stdout, SetForegroundColor(theme.line_number.to_crossterm()))?;
@@ -250,6 +267,33 @@ impl Renderer {
         }
 
         Ok(())
+    }
+
+    /// Map a highlight kind to a theme color
+    fn highlight_kind_to_color(
+        &self,
+        kind: crate::syntax::HighlightKind,
+        theme: &Theme,
+    ) -> crate::theme::Color {
+        use crate::syntax::HighlightKind;
+
+        match kind {
+            HighlightKind::Keyword => theme.syntax_keyword.fg,
+            HighlightKind::String => theme.syntax_string.fg,
+            HighlightKind::Number => theme.syntax_number.fg,
+            HighlightKind::Comment => theme.syntax_comment.fg,
+            HighlightKind::Function => theme.syntax_function.fg,
+            HighlightKind::Type => theme.syntax_type.fg,
+            HighlightKind::Variable => theme.syntax_variable.fg,
+            HighlightKind::Operator => theme.syntax_operator.fg,
+            HighlightKind::Punctuation => theme.syntax_punctuation.fg,
+            HighlightKind::Property => theme.syntax_variable.fg,
+            HighlightKind::Constant => theme.syntax_number.fg,
+            HighlightKind::Namespace => theme.syntax_type.fg,
+            HighlightKind::Parameter => theme.syntax_variable.fg,
+            HighlightKind::Label => theme.syntax_keyword.fg,
+            HighlightKind::Default => theme.foreground,
+        }
     }
 
     fn render_file_browser_pane(

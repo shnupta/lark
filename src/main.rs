@@ -10,6 +10,7 @@ mod finder;
 mod input;
 mod render;
 mod scripting;
+mod syntax;
 mod theme;
 
 use editor::{FinderAction, Workspace};
@@ -27,11 +28,37 @@ async fn main() -> std::io::Result<()> {
 
     // Parse command line args
     let args: Vec<String> = env::args().collect();
-    let mut workspace = if args.len() > 1 {
-        Workspace::open(PathBuf::from(&args[1]))
+    let mut verbose = false;
+    let mut file_path: Option<PathBuf> = None;
+
+    for arg in args.iter().skip(1) {
+        match arg.as_str() {
+            "--verbose" | "-v" => verbose = true,
+            "--help" | "-h" => {
+                println!("lark - a modal terminal editor");
+                println!();
+                println!("Usage: lark [OPTIONS] [FILE]");
+                println!();
+                println!("Options:");
+                println!("  -v, --verbose    Enable verbose logging");
+                println!("  -h, --help       Show this help");
+                return Ok(());
+            }
+            _ => {
+                if !arg.starts_with('-') {
+                    file_path = Some(PathBuf::from(arg));
+                }
+            }
+        }
+    }
+
+    let mut workspace = if let Some(path) = file_path {
+        Workspace::open(path)
     } else {
         Workspace::new()
     };
+
+    workspace.verbose = verbose;
 
     // Apply settings from config
     workspace.theme_name = settings.theme.clone();
@@ -39,6 +66,12 @@ async fn main() -> std::io::Result<()> {
     // Show config error if any
     if let Some(err) = config_error {
         workspace.set_error(err);
+    }
+
+    // Log startup info
+    if verbose {
+        workspace.log("Lark started in verbose mode");
+        workspace.log(format!("Theme: {}", workspace.theme_name));
     }
 
     // Set up terminal

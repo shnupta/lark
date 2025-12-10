@@ -5,6 +5,7 @@ use super::file_browser::FileBrowser;
 use super::layout::{Layout, Rect, SplitDirection};
 use super::pane::{Pane, PaneId, PaneKind};
 use super::{Buffer, Cursor};
+use crate::syntax::Language;
 
 /// A tab contains multiple panes with their layout
 pub struct Tab {
@@ -149,9 +150,17 @@ impl Tab {
         let labeled = self.get_editor_panes_with_labels();
         if let Some((_, pane_id)) = labeled.iter().find(|(l, _)| *l == label) {
             if let Some(pane) = self.panes.get_mut(pane_id) {
-                pane.buffer = Buffer::from_file(path);
+                pane.buffer = Buffer::from_file(path.clone());
                 pane.cursor = Cursor::new();
                 pane.scroll_offset = 0;
+
+                // Set up syntax highlighting
+                let lang = Language::from_path(&path);
+                pane.language = lang;
+                if pane.highlighter.set_language(lang) {
+                    pane.highlighter.parse(&pane.buffer.text());
+                }
+
                 self.focused_pane_id = *pane_id;
                 return true;
             }
@@ -161,9 +170,16 @@ impl Tab {
 
     pub fn open_file_in_focused_pane(&mut self, path: PathBuf) {
         if let Some(pane) = self.panes.get_mut(&self.focused_pane_id) {
-            pane.buffer = Buffer::from_file(path);
+            pane.buffer = Buffer::from_file(path.clone());
             pane.cursor = Cursor::new();
             pane.scroll_offset = 0;
+
+            // Set up syntax highlighting
+            let lang = Language::from_path(&path);
+            pane.language = lang;
+            if pane.highlighter.set_language(lang) {
+                pane.highlighter.parse(&pane.buffer.text());
+            }
         }
     }
 
@@ -227,9 +243,16 @@ impl Tab {
             if let Some(path) = self.file_browser.select() {
                 if let Some((_, pane_id)) = editor_panes.first() {
                     if let Some(pane) = self.panes.get_mut(pane_id) {
-                        pane.buffer = Buffer::from_file(path);
+                        pane.buffer = Buffer::from_file(path.clone());
                         pane.cursor = Cursor::new();
                         pane.scroll_offset = 0;
+
+                        // Set up syntax highlighting
+                        let lang = Language::from_path(&path);
+                        pane.language = lang;
+                        if pane.highlighter.set_language(lang) {
+                            pane.highlighter.parse(&pane.buffer.text());
+                        }
                     }
                     self.focused_pane_id = *pane_id;
                 }

@@ -39,6 +39,11 @@ impl Buffer {
         self.filepath.as_ref()
     }
 
+    /// Get the full text as a String (for syntax highlighting)
+    pub fn text(&self) -> String {
+        self.text.to_string()
+    }
+
     pub fn save(&self) -> io::Result<()> {
         if !self.dirty {
             return Ok(());

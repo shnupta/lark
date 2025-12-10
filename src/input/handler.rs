@@ -479,6 +479,250 @@ fn execute_command(workspace: &mut Workspace) {
                 }
             }
         }
+        "TSList" => {
+            // List installed and available grammars
+            let registry = crate::syntax::LanguageRegistry::new();
+            let installed = registry.installed();
+            let not_installed = registry.not_installed();
+            let outdated = registry.outdated_grammars();
+
+            let installed_names: Vec<_> = installed.iter().map(|l| l.name()).collect();
+            let not_installed_names: Vec<_> = not_installed.iter().map(|l| l.name()).collect();
+
+            let mut msg = String::new();
+            if installed_names.is_empty() {
+                msg.push_str(&format!(
+                    "No grammars installed. Available: {}",
+                    not_installed_names.join(", ")
+                ));
+            } else {
+                msg.push_str(&format!(
+                    "Installed: {} | Available: {}",
+                    installed_names.join(", "),
+                    not_installed_names.join(", ")
+                ));
+            }
+
+            if !outdated.is_empty() {
+                msg.push_str(&format!(" | Outdated: {}", outdated.join(", ")));
+            }
+
+            workspace.set_message(msg);
+        }
+        "TSStatus" => {
+            // Show ABI version and status
+            let registry = crate::syntax::LanguageRegistry::new();
+            let outdated = registry.outdated_grammars();
+
+            let mut lines = vec![format!(
+                "Tree-sitter ABI version: {}",
+                crate::syntax::TREE_SITTER_ABI_VERSION
+            )];
+
+            if outdated.is_empty() {
+                lines.push("All grammars are compatible".to_string());
+            } else {
+                lines.push(format!("Outdated grammars: {}", outdated.join(", ")));
+                lines.push("Use :TSUpdate to reinstall".to_string());
+            }
+
+            workspace.set_message(lines.join("\n"));
+        }
+        "TSUpdate" => {
+            // Reinstall all outdated grammars
+            let mut installer = crate::syntax::GrammarInstaller::new();
+            let outdated = installer.outdated_grammars();
+
+            if outdated.is_empty() {
+                workspace.set_message("All grammars are up to date");
+            } else {
+                workspace.set_message(format!("Updating {} grammars...", outdated.len()));
+                let results = installer.reinstall_outdated();
+
+                let success_count = results
+                    .iter()
+                    .filter(|(_, r)| matches!(r, crate::syntax::InstallResult::Reinstalled))
+                    .count();
+                let fail_count = results
+                    .iter()
+                    .filter(|(_, r)| matches!(r, crate::syntax::InstallResult::Error(_)))
+                    .count();
+
+                if fail_count == 0 {
+                    workspace
+                        .set_message(format!("Updated {} grammars successfully", success_count));
+                } else {
+                    workspace
+                        .set_error(format!("Updated {}, failed {}", success_count, fail_count));
+                }
+            }
+        }
+        _ if cmd.starts_with("TSInstall ") => {
+            // Install a grammar
+            let lang_name = cmd.strip_prefix("TSInstall ").unwrap().trim();
+
+            // Find the language
+            let lang = match lang_name.to_lowercase().as_str() {
+                "rust" => Some(crate::syntax::Language::Rust),
+                "python" => Some(crate::syntax::Language::Python),
+                "javascript" | "js" => Some(crate::syntax::Language::JavaScript),
+                "typescript" | "ts" => Some(crate::syntax::Language::TypeScript),
+                "tsx" => Some(crate::syntax::Language::Tsx),
+                "go" => Some(crate::syntax::Language::Go),
+                "c" => Some(crate::syntax::Language::C),
+                "cpp" | "c++" => Some(crate::syntax::Language::Cpp),
+                "json" => Some(crate::syntax::Language::Json),
+                "toml" => Some(crate::syntax::Language::Toml),
+                "markdown" | "md" => Some(crate::syntax::Language::Markdown),
+                "bash" | "sh" => Some(crate::syntax::Language::Bash),
+                "lua" => Some(crate::syntax::Language::Lua),
+                "ruby" => Some(crate::syntax::Language::Ruby),
+                "html" => Some(crate::syntax::Language::Html),
+                "css" => Some(crate::syntax::Language::Css),
+                "yaml" | "yml" => Some(crate::syntax::Language::Yaml),
+                _ => None,
+            };
+
+            match lang {
+                Some(lang) => {
+                    workspace.set_message(format!("Installing {} grammar...", lang.name()));
+                    // Note: This blocks the UI - ideally should be async
+                    let mut installer = crate::syntax::GrammarInstaller::new();
+                    match installer.install(lang) {
+                        crate::syntax::InstallResult::Success => {
+                            workspace.set_message(format!(
+                                "{} grammar installed successfully!",
+                                lang.name()
+                            ));
+                        }
+                        crate::syntax::InstallResult::AlreadyInstalled => {
+                            workspace.set_message(format!(
+                                "{} grammar is already installed",
+                                lang.name()
+                            ));
+                        }
+                        crate::syntax::InstallResult::Reinstalled => {
+                            workspace.set_message(format!(
+                                "{} grammar reinstalled (ABI updated)",
+                                lang.name()
+                            ));
+                        }
+                        crate::syntax::InstallResult::Error(e) => {
+                            workspace.set_error(format!(
+                                "Failed to install {} grammar:\n{}",
+                                lang.name(),
+                                e
+                            ));
+                        }
+                    }
+                }
+                None => {
+                    let available: Vec<_> = crate::syntax::Language::all_installable()
+                        .iter()
+                        .map(|l| l.name())
+                        .collect();
+                    workspace.set_message(format!(
+                        "Unknown language: {}. Available: {}",
+                        lang_name,
+                        available.join(", ")
+                    ));
+                }
+            }
+        }
+        _ if cmd.starts_with("TSUninstall ") => {
+            // Uninstall a grammar
+            let lang_name = cmd.strip_prefix("TSUninstall ").unwrap().trim();
+
+            let lang = match lang_name.to_lowercase().as_str() {
+                "rust" => Some(crate::syntax::Language::Rust),
+                "python" => Some(crate::syntax::Language::Python),
+                "javascript" | "js" => Some(crate::syntax::Language::JavaScript),
+                "typescript" | "ts" => Some(crate::syntax::Language::TypeScript),
+                "go" => Some(crate::syntax::Language::Go),
+                "c" => Some(crate::syntax::Language::C),
+                "cpp" | "c++" => Some(crate::syntax::Language::Cpp),
+                "json" => Some(crate::syntax::Language::Json),
+                "toml" => Some(crate::syntax::Language::Toml),
+                "markdown" | "md" => Some(crate::syntax::Language::Markdown),
+                _ => None,
+            };
+
+            match lang {
+                Some(lang) => {
+                    let mut installer = crate::syntax::GrammarInstaller::new();
+                    match installer.uninstall(lang) {
+                        Ok(_) => {
+                            workspace.set_message(format!("{} grammar uninstalled", lang.name()));
+                        }
+                        Err(e) => {
+                            workspace.set_error(format!("Failed to uninstall: {}", e));
+                        }
+                    }
+                }
+                None => {
+                    workspace.set_message(format!("Unknown language: {}", lang_name));
+                }
+            }
+        }
+        "log" => {
+            // Show the editor log
+            let log = workspace.get_log();
+            if log.is_empty() {
+                workspace.set_message("Log is empty");
+            } else {
+                // Show log in message - truncate if too long
+                let lines: Vec<&str> = log.lines().collect();
+                let display = if lines.len() > 5 {
+                    format!(
+                        "... ({} more)\n{}",
+                        lines.len() - 5,
+                        lines[lines.len() - 5..].join("\n")
+                    )
+                } else {
+                    log
+                };
+                workspace.set_message(display);
+            }
+        }
+        "syntax" => {
+            // Show syntax highlighting status for the focused editor pane
+            let pane = workspace.focused_pane();
+            let file_info = pane
+                .buffer
+                .path()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "[No file]".to_string());
+            let pane_kind = match pane.kind {
+                crate::editor::PaneKind::Editor => "Editor",
+                crate::editor::PaneKind::FileBrowser => "FileBrowser",
+            };
+            let status = pane.highlighter.status();
+            workspace.set_message(format!("{} | {} | {}", pane_kind, file_info, status));
+        }
+        "verbose" => {
+            // Toggle verbose mode
+            workspace.verbose = !workspace.verbose;
+            workspace.set_message(format!(
+                "Verbose mode: {}",
+                if workspace.verbose { "on" } else { "off" }
+            ));
+        }
+        _ if cmd.starts_with("e ") || cmd.starts_with("edit ") => {
+            // Open a file
+            let path_str = if cmd.starts_with("e ") {
+                cmd.strip_prefix("e ").unwrap().trim()
+            } else {
+                cmd.strip_prefix("edit ").unwrap().trim()
+            };
+
+            let path = std::path::PathBuf::from(path_str);
+            if path.exists() {
+                workspace.open_file_in_focused_pane(path);
+                workspace.set_message(format!("Opened: {}", path_str));
+            } else {
+                workspace.set_message(format!("File not found: {}", path_str));
+            }
+        }
         "" => {}
         _ => {
             workspace.set_message(format!("Unknown command: {}", cmd));

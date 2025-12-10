@@ -1,4 +1,5 @@
 use super::{Buffer, Cursor, Mode};
+use crate::syntax::{Highlighter, Language};
 use std::path::PathBuf;
 
 /// Unique identifier for a pane
@@ -19,6 +20,8 @@ pub struct Pane {
     pub cursor: Cursor,
     pub scroll_offset: usize,
     pub mode: Mode,
+    pub highlighter: Highlighter,
+    pub language: Language,
 }
 
 impl Pane {
@@ -30,17 +33,30 @@ impl Pane {
             cursor: Cursor::new(),
             scroll_offset: 0,
             mode: Mode::Normal,
+            highlighter: Highlighter::new(),
+            language: Language::Unknown,
         }
     }
 
     pub fn new_editor_with_file(id: PaneId, path: PathBuf) -> Self {
+        let buffer = Buffer::from_file(path.clone());
+        let mut highlighter = Highlighter::new();
+        let language = Language::from_path(&path);
+
+        // Set language and parse if grammar is available
+        if highlighter.set_language(language) {
+            highlighter.parse(&buffer.text());
+        }
+
         Self {
             id,
             kind: PaneKind::Editor,
-            buffer: Buffer::from_file(path),
+            buffer,
             cursor: Cursor::new(),
             scroll_offset: 0,
             mode: Mode::Normal,
+            highlighter,
+            language,
         }
     }
 
@@ -52,6 +68,23 @@ impl Pane {
             cursor: Cursor::new(),
             scroll_offset: 0,
             mode: Mode::FileBrowser,
+            highlighter: Highlighter::new(),
+            language: Language::Unknown,
+        }
+    }
+
+    /// Re-parse the buffer for syntax highlighting
+    pub fn reparse(&mut self) {
+        if self.language != Language::Unknown {
+            self.highlighter.parse(&self.buffer.text());
+        }
+    }
+
+    /// Set language and reparse
+    pub fn set_language(&mut self, lang: Language) {
+        self.language = lang;
+        if self.highlighter.set_language(lang) {
+            self.highlighter.parse(&self.buffer.text());
         }
     }
 
