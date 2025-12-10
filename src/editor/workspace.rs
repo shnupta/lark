@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use super::Mode;
 use super::layout::{Direction, Rect};
+use super::mode::SearchDirection;
 use super::pane::PaneId;
 use super::tab::Tab;
 
@@ -20,6 +21,51 @@ pub struct MessageViewerState {
     pub title: String,
 }
 
+/// A search match in a buffer
+#[derive(Debug, Clone)]
+pub struct SearchMatch {
+    pub line: usize,
+    pub start_col: usize,
+    pub end_col: usize,
+}
+
+/// Search state
+pub struct SearchState {
+    pub query: String,
+    pub direction: SearchDirection,
+    pub matches: Vec<SearchMatch>,
+    pub current_match: usize,
+    pub active: bool,       // Whether matches should be highlighted
+    pub is_inputting: bool, // Whether user is typing search pattern
+}
+
+impl SearchState {
+    pub fn new() -> Self {
+        Self {
+            query: String::new(),
+            direction: SearchDirection::Forward,
+            matches: Vec::new(),
+            current_match: 0,
+            active: false,
+            is_inputting: false,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.query.clear();
+        self.matches.clear();
+        self.current_match = 0;
+        self.active = false;
+        self.is_inputting = false;
+    }
+}
+
+impl Default for SearchState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The workspace manages tabs, each containing panes
 pub struct Workspace {
     pub tabs: Vec<Tab>,
@@ -36,6 +82,8 @@ pub struct Workspace {
     pub log: Vec<String>,          // Editor log messages
     pub verbose: bool,             // Verbose logging mode
     pub message_viewer: Option<MessageViewerState>,
+    pub search: SearchState,
+    pub search_buffer: String, // Input buffer for search mode
 }
 
 impl Workspace {
@@ -55,6 +103,8 @@ impl Workspace {
             log: Vec::new(),
             verbose: false,
             message_viewer: None,
+            search: SearchState::new(),
+            search_buffer: String::new(),
         }
     }
 
@@ -75,6 +125,181 @@ impl Workspace {
         self.focused_pane_mut().mode = super::Mode::Normal;
     }
 
+    /// Start a search
+    pub fn start_search(&mut self, direction: SearchDirection) {
+        self.search.direction = direction;
+        self.search_buffer.clear();
+        self.search.is_inputting = true;
+    }
+
+    /// Execute the current search
+    pub fn execute_search(&mut self) {
+        self.search.is_inputting = false;
+        let query = self.search_buffer.clone();
+        if query.is_empty() {
+            return;
+        }
+
+        self.search.query = query.clone();
+        self.search.active = true;
+        self.find_matches();
+
+        // Jump to first match in the search direction
+        if !self.search.matches.is_empty() {
+            let pane = self.focused_pane();
+            let cursor_line = pane.cursor.line;
+            let cursor_col = pane.cursor.col;
+
+            // Find the match to jump to based on direction
+            let match_idx = if self.search.direction == SearchDirection::Forward {
+                // Find first match after cursor
+                self.search
+                    .matches
+                    .iter()
+                    .position(|m| {
+                        m.line > cursor_line || (m.line == cursor_line && m.start_col > cursor_col)
+                    })
+                    .unwrap_or(0)
+            } else {
+                // Find first match before cursor
+                self.search
+                    .matches
+                    .iter()
+                    .rposition(|m| {
+                        m.line < cursor_line || (m.line == cursor_line && m.start_col < cursor_col)
+                    })
+                    .unwrap_or(self.search.matches.len().saturating_sub(1))
+            };
+
+            self.search.current_match = match_idx;
+            self.jump_to_current_match();
+        }
+    }
+
+    /// Cancel search input
+    pub fn cancel_search(&mut self) {
+        self.search.is_inputting = false;
+        self.search_buffer.clear();
+    }
+
+    /// Find all matches for the current search query
+    fn find_matches(&mut self) {
+        self.search.matches.clear();
+
+        let query = self.search.query.clone();
+        if query.is_empty() {
+            return;
+        }
+
+        // Collect all line strings first to avoid borrow issues
+        let pane = self.focused_pane();
+        let line_count = pane.buffer.line_count();
+        let lines: Vec<String> = (0..line_count)
+            .map(|i| pane.buffer.line(i).chars().collect())
+            .collect();
+
+        // Now search through the collected lines
+        for (line_idx, line_str) in lines.iter().enumerate() {
+            let mut start = 0;
+            while let Some(pos) = line_str[start..].find(&query) {
+                let match_start = start + pos;
+                let match_end = match_start + query.len();
+                self.search.matches.push(SearchMatch {
+                    line: line_idx,
+                    start_col: match_start,
+                    end_col: match_end,
+                });
+                start = match_start + 1;
+            }
+        }
+
+        if self.search.matches.is_empty() {
+            self.set_message(format!("Pattern not found: {}", query));
+        } else {
+            self.set_message(format!(
+                "{} matches for '{}'",
+                self.search.matches.len(),
+                query
+            ));
+        }
+    }
+
+    /// Jump to the current match
+    fn jump_to_current_match(&mut self) {
+        let current = self.search.current_match;
+        if let Some(m) = self.search.matches.get(current) {
+            let line = m.line;
+            let col = m.start_col;
+            let pane = self.focused_pane_mut();
+            pane.cursor.line = line;
+            pane.cursor.col = col;
+        }
+    }
+
+    /// Go to next search match
+    pub fn search_next(&mut self) {
+        if self.search.matches.is_empty() {
+            // Try to re-search with the last query
+            if !self.search.query.is_empty() {
+                self.find_matches();
+            }
+            if self.search.matches.is_empty() {
+                return;
+            }
+        }
+
+        if self.search.direction == SearchDirection::Forward {
+            self.search.current_match = (self.search.current_match + 1) % self.search.matches.len();
+        } else {
+            self.search.current_match = if self.search.current_match == 0 {
+                self.search.matches.len() - 1
+            } else {
+                self.search.current_match - 1
+            };
+        }
+
+        self.jump_to_current_match();
+        self.set_message(format!(
+            "[{}/{}]",
+            self.search.current_match + 1,
+            self.search.matches.len()
+        ));
+    }
+
+    /// Go to previous search match
+    pub fn search_prev(&mut self) {
+        if self.search.matches.is_empty() {
+            if !self.search.query.is_empty() {
+                self.find_matches();
+            }
+            if self.search.matches.is_empty() {
+                return;
+            }
+        }
+
+        if self.search.direction == SearchDirection::Forward {
+            self.search.current_match = if self.search.current_match == 0 {
+                self.search.matches.len() - 1
+            } else {
+                self.search.current_match - 1
+            };
+        } else {
+            self.search.current_match = (self.search.current_match + 1) % self.search.matches.len();
+        }
+
+        self.jump_to_current_match();
+        self.set_message(format!(
+            "[{}/{}]",
+            self.search.current_match + 1,
+            self.search.matches.len()
+        ));
+    }
+
+    /// Clear search highlights
+    pub fn clear_search(&mut self) {
+        self.search.active = false;
+    }
+
     pub fn open(path: PathBuf) -> Self {
         Self {
             tabs: vec![Tab::with_file(path)],
@@ -91,6 +316,8 @@ impl Workspace {
             log: Vec::new(),
             verbose: false,
             message_viewer: None,
+            search: SearchState::new(),
+            search_buffer: String::new(),
         }
     }
 

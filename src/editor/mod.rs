@@ -10,6 +10,6 @@ mod workspace;
 pub use buffer::Buffer;
 pub use cursor::Cursor;
 pub use layout::{Direction, Rect};
-pub use mode::Mode;
+pub use mode::{Mode, SearchDirection};
 pub use pane::{Pane, PaneKind};
-pub use workspace::{FinderAction, MessageViewerState, Workspace};
+pub use workspace::{FinderAction, SearchState, Workspace};

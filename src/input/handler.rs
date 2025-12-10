@@ -2,7 +2,7 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 
 use super::keymap::{Action, Key, KeyResult, KeySequenceState};
-use crate::editor::{Direction, FinderAction, Mode, PaneKind, Workspace};
+use crate::editor::{Direction, FinderAction, Mode, PaneKind, SearchDirection, Workspace};
 
 pub struct InputState {
     pub key_seq: KeySequenceState,
@@ -63,6 +63,12 @@ fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputS
     // Command mode takes priority - check this first
     if workspace.mode() == Mode::Command {
         handle_command_mode(workspace, key);
+        return;
+    }
+
+    // Search input - handle typing search pattern (not a separate mode)
+    if workspace.search.is_inputting {
+        handle_search_input(workspace, key);
         return;
     }
 
@@ -245,6 +251,29 @@ fn handle_command_mode(workspace: &mut Workspace, key: KeyEvent) {
         }
         KeyCode::Char(c) => {
             workspace.command_buffer.push(c);
+        }
+        _ => {}
+    }
+}
+
+fn handle_search_input(workspace: &mut Workspace, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            workspace.cancel_search();
+        }
+        KeyCode::Enter => {
+            workspace.execute_search();
+        }
+        KeyCode::Backspace => {
+            // Only cancel if buffer is already empty (trying to delete the '/' or '?')
+            if workspace.search_buffer.is_empty() {
+                workspace.cancel_search();
+            } else {
+                workspace.search_buffer.pop();
+            }
+        }
+        KeyCode::Char(c) => {
+            workspace.search_buffer.push(c);
         }
         _ => {}
     }
@@ -487,6 +516,23 @@ fn execute_action(
             }
             Action::CloseTab => {
                 workspace.close_tab();
+            }
+
+            // Search
+            Action::SearchForward => {
+                workspace.start_search(SearchDirection::Forward);
+            }
+            Action::SearchBackward => {
+                workspace.start_search(SearchDirection::Backward);
+            }
+            Action::SearchNext => {
+                workspace.search_next();
+            }
+            Action::SearchPrev => {
+                workspace.search_prev();
+            }
+            Action::ClearSearch => {
+                workspace.clear_search();
             }
 
             // Other

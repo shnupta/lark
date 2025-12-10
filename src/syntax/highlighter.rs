@@ -105,6 +105,7 @@ impl HighlightKind {
                 Self::from_js_node(node_type)
             }
             Language::Go => Self::from_go_node(node_type),
+            Language::C | Language::Cpp => Self::from_cpp_node(node_type),
             _ => HighlightKind::Default,
         }
     }
@@ -199,6 +200,68 @@ impl HighlightKind {
             | "if" | "else" | "for" | "range" | "switch" | "case" | "default" | "select"
             | "break" | "continue" | "return" | "go" | "defer" | "var" | "const"
             | "fallthrough" => HighlightKind::Keyword,
+            _ => HighlightKind::Default,
+        }
+    }
+
+    fn from_cpp_node(node_type: &str) -> Self {
+        match node_type {
+            // Keywords
+            "if" | "else" | "for" | "while" | "do" | "switch" | "case" | "default" | "break"
+            | "continue" | "return" | "goto" | "throw" | "try" | "catch" | "class" | "struct"
+            | "union" | "enum" | "namespace" | "using" | "typedef" | "typename" | "template"
+            | "public" | "private" | "protected" | "virtual" | "override" | "final" | "const"
+            | "static" | "extern" | "inline" | "volatile" | "mutable" | "register" | "explicit"
+            | "friend" | "operator" | "new" | "delete" | "this" | "nullptr" | "constexpr"
+            | "consteval" | "constinit" | "decltype" | "auto" | "sizeof" | "alignof"
+            | "noexcept" | "static_assert" | "thread_local" | "export" | "import" | "module"
+            | "concept" | "requires" | "co_await" | "co_return" | "co_yield" => {
+                HighlightKind::Keyword
+            }
+
+            // Primitive types
+            "primitive_type" | "sized_type_specifier" => HighlightKind::Type,
+
+            // Type identifiers
+            "type_identifier" | "namespace_identifier" => HighlightKind::Type,
+
+            // Preprocessor
+            "preproc_include" | "preproc_def" | "preproc_ifdef" | "preproc_ifndef"
+            | "preproc_if" | "preproc_else" | "preproc_elif" | "preproc_endif"
+            | "preproc_directive" | "#include" | "#define" | "#ifdef" | "#ifndef" | "#if"
+            | "#else" | "#elif" | "#endif" | "#pragma" => HighlightKind::Label,
+
+            // Include paths
+            "system_lib_string" | "string_literal" => HighlightKind::String,
+
+            // Numbers
+            "number_literal" => HighlightKind::Number,
+
+            // Boolean
+            "true" | "false" => HighlightKind::Constant,
+
+            // Comments
+            "comment" => HighlightKind::Comment,
+
+            // Field access
+            "field_identifier" => HighlightKind::Property,
+
+            // Function declarations and calls
+            "function_declarator" => HighlightKind::Function,
+
+            // Operators
+            "::" | "->" | "." | "<<" | ">>" | "==" | "!=" | "<=" | ">=" | "&&" | "||" | "+="
+            | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" | "++" | "--"
+            | ".*" | "->*" => HighlightKind::Operator,
+
+            // Punctuation
+            ";" | "," | ":" | "{" | "}" | "(" | ")" | "[" | "]" | "<" | ">" => {
+                HighlightKind::Punctuation
+            }
+
+            // Identifiers (will be refined by context)
+            "identifier" => HighlightKind::Variable,
+
             _ => HighlightKind::Default,
         }
     }
@@ -496,8 +559,12 @@ impl Highlighter {
                 ("identifier", "call_expression") => return HighlightKind::Function,
                 ("scoped_identifier", "call_expression") => return HighlightKind::Function,
 
-                // Method calls - field_identifier in various contexts
-                ("field_identifier", "field_expression") => return HighlightKind::Function,
+                // Method calls - field_identifier in various contexts (for non-C/C++)
+                ("field_identifier", "field_expression")
+                    if lang != Language::C && lang != Language::Cpp =>
+                {
+                    return HighlightKind::Function;
+                }
                 ("field_identifier", "call_expression") => return HighlightKind::Function,
 
                 // Enum variants in patterns (Some, None, Ok, Err)
@@ -507,7 +574,6 @@ impl Highlighter {
                 ("scoped_identifier", "match_pattern") => return HighlightKind::Type,
 
                 // Type context - identifiers in type positions
-                ("type_identifier", _) => return HighlightKind::Type,
                 ("identifier", "scoped_type_identifier") => return HighlightKind::Type,
                 ("identifier", "type_arguments") => return HighlightKind::Type,
                 ("identifier", "generic_type") => return HighlightKind::Type,
@@ -543,6 +609,45 @@ impl Highlighter {
 
                 // Mod declarations
                 ("identifier", "mod_item") => return HighlightKind::Type,
+
+                // ===== C/C++ specific patterns =====
+
+                // C++ namespaces and scoped names
+                ("namespace_identifier", _) => return HighlightKind::Type,
+                ("identifier", "namespace_definition") => return HighlightKind::Type,
+                ("identifier", "using_declaration") => return HighlightKind::Type,
+                ("identifier", "qualified_identifier") => return HighlightKind::Type,
+
+                // C++ class/struct names
+                ("type_identifier", "class_specifier") => return HighlightKind::Type,
+                ("type_identifier", "struct_specifier") => return HighlightKind::Type,
+                ("type_identifier", "base_class_clause") => return HighlightKind::Type,
+                ("identifier", "base_class_clause") => return HighlightKind::Type,
+
+                // C++ function declarations
+                ("identifier", "function_declarator") => return HighlightKind::Function,
+                ("identifier", "destructor_name") => return HighlightKind::Function,
+                ("field_identifier", "function_declarator") => return HighlightKind::Function,
+
+                // C++ template parameters
+                ("type_identifier", "type_parameter_declaration") => return HighlightKind::Type,
+                ("identifier", "template_argument_list") => return HighlightKind::Type,
+                ("type_identifier", "template_argument_list") => return HighlightKind::Type,
+
+                // C++ member access - for C/C++ fields are properties, not functions
+                ("field_identifier", "field_expression")
+                    if lang == Language::Cpp || lang == Language::C =>
+                {
+                    return HighlightKind::Property;
+                }
+
+                // C++ preprocessor
+                ("identifier", "preproc_include") => return HighlightKind::String,
+                ("identifier", "preproc_def") => return HighlightKind::Constant,
+                ("identifier", "preproc_function_def") => return HighlightKind::Function,
+
+                // Catch-all for type_identifier - must be LAST
+                ("type_identifier", _) => return HighlightKind::Type,
 
                 _ => {}
             }

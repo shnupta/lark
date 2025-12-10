@@ -145,6 +145,21 @@
 
 ---
 
+## High Priority (Before LSP)
+
+### Shared Buffers
+- [ ] Buffers should be one per file path
+- [ ] If same file is open in multiple panes, they share the same buffer
+- [ ] Changes in one pane reflect immediately in others
+
+### Undo/Redo Stack
+- [ ] Implement undo/redo for buffer changes
+- [ ] `u` to undo, `Ctrl-r` to redo
+- [ ] Track insertions, deletions, and replacements
+- [ ] Group related changes (e.g., typing a word)
+
+---
+
 ## Backlog / Nice to Have
 
 ### Editor Enhancements

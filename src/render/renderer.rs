@@ -134,7 +134,13 @@ impl Renderer {
                 if let Some(pane) = workspace.pane(*pane_id) {
                     match pane.kind {
                         PaneKind::Editor => {
-                            self.render_editor_pane(&mut stdout, pane, rect, theme)?
+                            let is_focused = workspace.is_focused(*pane_id);
+                            let search_matches = if is_focused && workspace.search.active {
+                                Some(&workspace.search)
+                            } else {
+                                None
+                            };
+                            self.render_editor_pane(&mut stdout, pane, rect, theme, search_matches)?
                         }
                         PaneKind::FileBrowser => {
                             let is_focused = workspace.is_focused(*pane_id);
@@ -234,6 +240,7 @@ impl Renderer {
         pane: &crate::editor::Pane,
         rect: &Rect,
         theme: &Theme,
+        search: Option<&crate::editor::SearchState>,
     ) -> io::Result<()> {
         let line_count = pane.buffer.line_count();
         let gutter_width = 4;
@@ -272,6 +279,17 @@ impl Renderer {
                 // Get syntax highlights for this line
                 let highlights = pane.highlighter.line_highlights(line_idx);
 
+                // Get search matches for this line
+                let line_matches: Vec<_> = search
+                    .map(|s| {
+                        s.matches
+                            .iter()
+                            .filter(|m| m.line == line_idx)
+                            .map(|m| (m.start_col, m.end_col))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
                 // Calculate byte offset for scroll_col (for highlight matching)
                 let scroll_byte_offset: usize = content
                     .chars()
@@ -281,23 +299,38 @@ impl Renderer {
 
                 // Render visible portion of the line
                 let mut byte_col = scroll_byte_offset;
+                let mut char_col = pane.scroll_col;
                 let mut displayed = 0;
                 for ch in content.chars().skip(pane.scroll_col).take(text_width) {
-                    // Determine the color for this character
-                    let color = if let Some(hl) = highlights {
-                        let kind = hl.kind_at(byte_col);
-                        self.highlight_kind_to_color(kind, theme)
-                    } else {
-                        theme.foreground
-                    };
+                    // Check if this character is in a search match
+                    let in_match = line_matches
+                        .iter()
+                        .any(|(start, end)| char_col >= *start && char_col < *end);
 
-                    queue!(stdout, SetForegroundColor(color.to_crossterm()))?;
+                    if in_match {
+                        // Search match - use inverted colors
+                        queue!(stdout, SetBackgroundColor(theme.warning.to_crossterm()))?;
+                        queue!(stdout, SetForegroundColor(theme.background.to_crossterm()))?;
+                    } else {
+                        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+                        // Determine the color for this character
+                        let color = if let Some(hl) = highlights {
+                            let kind = hl.kind_at(byte_col);
+                            self.highlight_kind_to_color(kind, theme)
+                        } else {
+                            theme.foreground
+                        };
+                        queue!(stdout, SetForegroundColor(color.to_crossterm()))?;
+                    }
+
                     queue!(stdout, Print(ch))?;
                     byte_col += ch.len_utf8();
+                    char_col += 1;
                     displayed += 1;
                 }
 
-                // Pad the rest of the line
+                // Reset background and pad the rest of the line
+                queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
                 if displayed < text_width {
                     queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
                     let padding = " ".repeat(text_width - displayed);
@@ -610,6 +643,23 @@ impl Renderer {
             return Ok(());
         }
 
+        // Search input mode - show search pattern
+        if workspace.search.is_inputting {
+            queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+            queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
+            queue!(stdout, Clear(ClearType::CurrentLine))?;
+            let prefix = if workspace.search.direction == crate::editor::SearchDirection::Forward {
+                "/"
+            } else {
+                "?"
+            };
+            queue!(
+                stdout,
+                Print(format!("{}{}", prefix, workspace.search_buffer))
+            )?;
+            return Ok(());
+        }
+
         // Error - show in red, potentially multiline
         if let Some(ref err) = workspace.error {
             let lines: Vec<&str> = err.lines().collect();
@@ -801,6 +851,13 @@ impl Renderer {
                 let cmd_col = 1 + workspace.command_buffer.len() as u16;
                 let cmd_row = self.height.saturating_sub(1);
                 queue!(stdout, MoveTo(cmd_col, cmd_row))?;
+                queue!(stdout, SetCursorStyle::BlinkingBar)?;
+                queue!(stdout, Show)?;
+            } else if workspace.search.is_inputting {
+                // Search input - cursor at end of search buffer
+                let search_col = 1 + workspace.search_buffer.len() as u16;
+                let search_row = self.height.saturating_sub(1);
+                queue!(stdout, MoveTo(search_col, search_row))?;
                 queue!(stdout, SetCursorStyle::BlinkingBar)?;
                 queue!(stdout, Show)?;
             } else if focused_pane.kind == PaneKind::Editor {

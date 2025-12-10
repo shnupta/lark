@@ -8,6 +8,14 @@ pub enum Mode {
     MessageViewer,
 }
 
+/// Search direction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchDirection {
+    #[default]
+    Forward,
+    Backward,
+}
+
 impl Mode {
     pub fn display(&self) -> &'static str {
         match self {

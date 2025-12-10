@@ -73,6 +73,13 @@ pub enum Action {
     PrevTab,
     CloseTab,
 
+    // Search
+    SearchForward,
+    SearchBackward,
+    SearchNext,
+    SearchPrev,
+    ClearSearch,
+
     // Other
     Quit,
 }
@@ -294,7 +301,11 @@ impl KeySequenceState {
                     KeyCode::Char('o') => Some(Action::EnterInsertModeOpenBelow),
                     KeyCode::Char('O') => Some(Action::EnterInsertModeOpenAbove),
                     KeyCode::Char(':') => Some(Action::EnterCommandMode),
-                    KeyCode::Esc => Some(Action::EnterNormalMode),
+                    KeyCode::Char('/') => Some(Action::SearchForward),
+                    KeyCode::Char('?') => Some(Action::SearchBackward),
+                    KeyCode::Char('n') => Some(Action::SearchNext),
+                    KeyCode::Char('N') => Some(Action::SearchPrev),
+                    KeyCode::Esc => Some(Action::ClearSearch),
                     _ => None,
                 };
 
