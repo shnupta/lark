@@ -15,7 +15,8 @@ pub enum FinderAction {
 /// State for the message viewer
 pub struct MessageViewerState {
     pub content: String,
-    pub scroll: usize,
+    pub scroll: usize,     // Vertical scroll
+    pub scroll_col: usize, // Horizontal scroll
     pub title: String,
 }
 
@@ -62,6 +63,7 @@ impl Workspace {
         self.message_viewer = Some(MessageViewerState {
             content,
             scroll: 0,
+            scroll_col: 0,
             title: title.to_string(),
         });
         self.focused_pane_mut().mode = super::Mode::MessageViewer;

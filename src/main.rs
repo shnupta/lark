@@ -180,9 +180,14 @@ async fn main() -> std::io::Result<()> {
             Some(Ok(event)) = event_stream.next() => {
                 input::handle_event(&mut workspace, event, &mut input_state);
 
-                // Adjust scroll for focused pane based on its actual height
+                // Adjust scroll for focused pane based on its actual dimensions
                 let pane_height = renderer.focused_pane_height(&workspace);
-                workspace.focused_pane_mut().adjust_scroll(pane_height);
+                let pane_width = renderer.focused_pane_width(&workspace);
+                {
+                    let pane = workspace.focused_pane_mut();
+                    pane.adjust_scroll(pane_height);
+                    pane.adjust_scroll_horizontal(pane_width);
+                }
 
                 // Get current theme (may have changed via :theme command)
                 let current_theme = theme::get_builtin_theme(&workspace.theme_name).unwrap_or_default();

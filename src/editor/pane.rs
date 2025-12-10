@@ -18,7 +18,8 @@ pub struct Pane {
     pub kind: PaneKind,
     pub buffer: Buffer,
     pub cursor: Cursor,
-    pub scroll_offset: usize,
+    pub scroll_offset: usize, // Vertical scroll
+    pub scroll_col: usize,    // Horizontal scroll
     pub mode: Mode,
     pub highlighter: Highlighter,
     pub language: Language,
@@ -32,6 +33,7 @@ impl Pane {
             buffer: Buffer::new(),
             cursor: Cursor::new(),
             scroll_offset: 0,
+            scroll_col: 0,
             mode: Mode::Normal,
             highlighter: Highlighter::new(),
             language: Language::Unknown,
@@ -54,6 +56,7 @@ impl Pane {
             buffer,
             cursor: Cursor::new(),
             scroll_offset: 0,
+            scroll_col: 0,
             mode: Mode::Normal,
             highlighter,
             language,
@@ -67,6 +70,7 @@ impl Pane {
             buffer: Buffer::new(),
             cursor: Cursor::new(),
             scroll_offset: 0,
+            scroll_col: 0,
             mode: Mode::FileBrowser,
             highlighter: Highlighter::new(),
             language: Language::Unknown,
@@ -89,11 +93,27 @@ impl Pane {
     }
 
     pub fn adjust_scroll(&mut self, viewport_height: usize) {
+        // Vertical scroll
         if self.cursor.line < self.scroll_offset {
             self.scroll_offset = self.cursor.line;
         }
         if self.cursor.line >= self.scroll_offset + viewport_height {
             self.scroll_offset = self.cursor.line - viewport_height + 1;
+        }
+    }
+
+    pub fn adjust_scroll_horizontal(&mut self, viewport_width: usize) {
+        // Horizontal scroll - keep some margin
+        let margin = 5.min(viewport_width / 4);
+
+        if self.cursor.col < self.scroll_col {
+            self.scroll_col = self.cursor.col;
+        }
+        if self.cursor.col >= self.scroll_col + viewport_width.saturating_sub(margin) {
+            self.scroll_col = self
+                .cursor
+                .col
+                .saturating_sub(viewport_width.saturating_sub(margin - 1));
         }
     }
 }

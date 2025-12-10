@@ -121,11 +121,13 @@ impl HighlightKind {
                 HighlightKind::Keyword
             }
 
-            // Punctuation and operators
+            // Punctuation and operators (note: "!" is handled via parent context for macros)
             ";" | "," | "::" | ":" | "->" | "=>" | "=" | "+" | "-" | "*" | "/" | "%" | "&"
-            | "|" | "^" | "!" | "<" | ">" | "?" | "@" | "#" | "." | ".." | "..." | "..=" | "+="
+            | "|" | "^" | "<" | ">" | "?" | "@" | "#" | "." | ".." | "..." | "..=" | "+="
             | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<" | ">>" | "<<=" | ">>="
             | "==" | "!=" | "<=" | ">=" | "&&" | "||" => HighlightKind::Operator,
+            // "!" needs context - it's an operator when alone, but Function when in macro
+            "!" => HighlightKind::Operator, // Default for standalone !, context overrides for macros
 
             // Brackets
             "(" | ")" | "[" | "]" | "{" | "}" => HighlightKind::Punctuation,
@@ -377,12 +379,15 @@ impl Highlighter {
         let mut result = vec![format!("Language: {:?}", self.language)];
         let mut cursor = tree.walk();
         let mut seen_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut macro_info: Vec<String> = Vec::new();
 
         fn collect_types(
             cursor: &mut tree_sitter::TreeCursor,
             seen: &mut std::collections::HashSet<String>,
+            macro_info: &mut Vec<String>,
             max_row: usize,
             lang: Language,
+            parent_kind: Option<&str>,
         ) {
             loop {
                 let node = cursor.node();
@@ -390,18 +395,29 @@ impl Highlighter {
                     break;
                 }
 
-                let kind = HighlightKind::from_node_type(node.kind(), lang);
+                let node_kind = node.kind();
+
+                // Use determine_highlight_kind to show actual result with context
+                let kind = Highlighter::determine_highlight_kind(node_kind, parent_kind, lang);
                 let info = format!(
                     "{}:{}{} -> {:?}",
-                    node.kind(),
+                    node_kind,
                     if node.is_named() { "N" } else { "A" },
                     if node.child_count() == 0 { "*" } else { "" },
                     kind
                 );
                 seen.insert(info);
 
+                // Track macro-related nodes for debugging
+                if node_kind == "macro_invocation" || parent_kind == Some("macro_invocation") {
+                    macro_info.push(format!(
+                        "  {} (parent: {:?}) -> {:?}",
+                        node_kind, parent_kind, kind
+                    ));
+                }
+
                 if cursor.goto_first_child() {
-                    collect_types(cursor, seen, max_row, lang);
+                    collect_types(cursor, seen, macro_info, max_row, lang, Some(node_kind));
                     cursor.goto_parent();
                 }
                 if !cursor.goto_next_sibling() {
@@ -410,7 +426,14 @@ impl Highlighter {
             }
         }
 
-        collect_types(&mut cursor, &mut seen_types, max_lines, self.language);
+        collect_types(
+            &mut cursor,
+            &mut seen_types,
+            &mut macro_info,
+            max_lines,
+            self.language,
+            None,
+        );
 
         // Show highlights we generated for line 0
         let line0_info = if let Some(hl) = self.line_highlights.get(0) {
@@ -420,9 +443,17 @@ impl Highlighter {
         };
         result.push(line0_info);
 
+        // Show macro debug info if any
+        if !macro_info.is_empty() {
+            result.push("Macro nodes:".to_string());
+            for info in macro_info.iter().take(10) {
+                result.push(info.clone());
+            }
+        }
+
         let mut types: Vec<_> = seen_types.into_iter().collect();
         types.sort();
-        result.push(format!("Nodes: {}", types.join(", ")));
+        result.push(format!("All nodes: {}", types.join(", ")));
 
         result.join("\n")
     }
@@ -447,7 +478,7 @@ impl Highlighter {
     }
 
     /// Determine highlight kind considering parent context
-    fn determine_highlight_kind(
+    pub fn determine_highlight_kind(
         node_kind: &str,
         parent_kind: Option<&str>,
         lang: Language,
@@ -460,43 +491,58 @@ impl Highlighter {
                 ("scoped_identifier", "macro_invocation") => return HighlightKind::Function,
                 // The `!` in macros
                 ("!", "macro_invocation") => return HighlightKind::Function,
-                // Identifiers inside scoped macro names (e.g., tokio in tokio::select!)
-                ("identifier", "scoped_identifier") if lang == Language::Rust => {
-                    // This will be colored as Type by default, which is fine for paths
-                }
 
                 // Function names in call expressions
                 ("identifier", "call_expression") => return HighlightKind::Function,
-                ("field_identifier", "field_expression") if lang == Language::Rust => {
-                    // Method calls like .iter(), .collect()
-                    return HighlightKind::Function;
-                }
-                // Scoped function calls like theme::get_builtin_theme
                 ("scoped_identifier", "call_expression") => return HighlightKind::Function,
 
+                // Method calls - field_identifier in various contexts
+                ("field_identifier", "field_expression") => return HighlightKind::Function,
+                ("field_identifier", "call_expression") => return HighlightKind::Function,
+
+                // Enum variants in patterns (Some, None, Ok, Err)
+                ("identifier", "tuple_struct_pattern") => return HighlightKind::Type,
+                ("identifier", "struct_pattern") => return HighlightKind::Type,
+                ("scoped_identifier", "tuple_struct_pattern") => return HighlightKind::Type,
+                ("scoped_identifier", "match_pattern") => return HighlightKind::Type,
+
                 // Type context - identifiers in type positions
+                ("type_identifier", _) => return HighlightKind::Type,
                 ("identifier", "scoped_type_identifier") => return HighlightKind::Type,
                 ("identifier", "type_arguments") => return HighlightKind::Type,
                 ("identifier", "generic_type") => return HighlightKind::Type,
                 ("scoped_identifier", "type_arguments") => return HighlightKind::Type,
                 ("scoped_identifier", "generic_type") => return HighlightKind::Type,
-                // Type annotations
                 ("identifier", "type_binding") => return HighlightKind::Type,
                 ("scoped_identifier", "type_binding") => return HighlightKind::Type,
 
+                // Scoped identifiers in various type contexts
+                ("scoped_identifier", "function_item") => return HighlightKind::Type,
+                ("scoped_identifier", "impl_item") => return HighlightKind::Type,
+                ("scoped_identifier", "struct_expression") => return HighlightKind::Type,
+
+                // Paths that are likely types/modules
+                ("identifier", "scoped_identifier") => return HighlightKind::Type,
+
                 // Function parameters
                 ("identifier", "parameter") => return HighlightKind::Parameter,
-                ("identifier", "parameters") => return HighlightKind::Parameter,
+                ("identifier", "closure_parameters") => return HighlightKind::Parameter,
 
-                // Struct/enum field definitions
+                // Struct/enum field definitions and access
                 ("identifier", "field_declaration") => return HighlightKind::Property,
+                ("field_identifier", "field_initializer") => return HighlightKind::Property,
+                ("field_identifier", "shorthand_field_initializer") => {
+                    return HighlightKind::Property;
+                }
 
-                // Use declarations - color the path
+                // Use declarations - color the path as types/modules
                 ("identifier", "use_declaration") => return HighlightKind::Type,
                 ("scoped_identifier", "use_declaration") => return HighlightKind::Type,
-                ("identifier", "scoped_identifier") => return HighlightKind::Type,
                 ("identifier", "use_list") => return HighlightKind::Type,
                 ("identifier", "use_as_clause") => return HighlightKind::Type,
+
+                // Mod declarations
+                ("identifier", "mod_item") => return HighlightKind::Type,
 
                 _ => {}
             }
@@ -593,7 +639,7 @@ fn is_highlightable_parent(node_type: &str) -> bool {
             | "line_comment"
             | "block_comment"
             | "doc_comment"
-            | "macro_invocation"
+            // Note: macro_invocation is NOT here - we want to highlight name and ! separately
             | "attribute_item"
             | "inner_attribute_item"
     )

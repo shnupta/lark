@@ -252,11 +252,13 @@ fn handle_command_mode(workspace: &mut Workspace, key: KeyEvent) {
 
 fn handle_message_viewer_mode(workspace: &mut Workspace, key: KeyEvent) {
     let height = workspace.terminal_size.1.saturating_sub(4) as usize; // Leave room for title and help
+    let width = workspace.terminal_size.0 as usize;
 
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
             workspace.close_message_viewer();
         }
+        // Vertical scroll
         KeyCode::Char('j') | KeyCode::Down => {
             if let Some(ref mut viewer) = workspace.message_viewer {
                 let max_scroll = viewer.content.lines().count().saturating_sub(height);
@@ -268,6 +270,30 @@ fn handle_message_viewer_mode(workspace: &mut Workspace, key: KeyEvent) {
         KeyCode::Char('k') | KeyCode::Up => {
             if let Some(ref mut viewer) = workspace.message_viewer {
                 viewer.scroll = viewer.scroll.saturating_sub(1);
+            }
+        }
+        // Horizontal scroll
+        KeyCode::Char('l') | KeyCode::Right => {
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                viewer.scroll_col += 10;
+            }
+        }
+        KeyCode::Char('h') | KeyCode::Left => {
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                viewer.scroll_col = viewer.scroll_col.saturating_sub(10);
+            }
+        }
+        KeyCode::Char('0') => {
+            // Go to start of line
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                viewer.scroll_col = 0;
+            }
+        }
+        KeyCode::Char('$') => {
+            // Go to end of longest line
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                let max_len = viewer.content.lines().map(|l| l.len()).max().unwrap_or(0);
+                viewer.scroll_col = max_len.saturating_sub(width);
             }
         }
         KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {

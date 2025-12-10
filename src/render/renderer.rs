@@ -71,6 +71,31 @@ impl Renderer {
         content_area.height as usize
     }
 
+    /// Calculate the text width of the focused pane for horizontal scroll
+    pub fn focused_pane_width(&self, workspace: &Workspace) -> usize {
+        let has_tabs = workspace.tab_count() > 1;
+        let tab_bar_height = if has_tabs { 1u16 } else { 0 };
+        let content_area = Rect::new(
+            0,
+            tab_bar_height,
+            self.width,
+            self.height.saturating_sub(1 + tab_bar_height),
+        );
+        let pane_rects = workspace.calculate_rects(content_area);
+
+        let gutter_width = 4usize;
+
+        // Find the focused pane's rect
+        for (pane_id, rect) in &pane_rects {
+            if workspace.is_focused(*pane_id) {
+                return (rect.width as usize).saturating_sub(gutter_width);
+            }
+        }
+
+        // Fallback to full content area
+        (content_area.width as usize).saturating_sub(gutter_width)
+    }
+
     pub fn render(&self, workspace: &mut Workspace, theme: &Theme) -> io::Result<()> {
         let mut stdout = stdout();
 
@@ -100,37 +125,46 @@ impl Renderer {
         );
         let pane_rects = workspace.calculate_rects(content_area);
 
-        // Render each pane
-        for (pane_id, rect) in &pane_rects {
-            if let Some(pane) = workspace.pane(*pane_id) {
-                match pane.kind {
-                    PaneKind::Editor => self.render_editor_pane(&mut stdout, pane, rect, theme)?,
-                    PaneKind::FileBrowser => {
-                        let is_focused = workspace.is_focused(*pane_id);
-                        self.render_file_browser_pane(
-                            &mut stdout,
-                            workspace,
-                            rect,
-                            is_focused,
-                            theme,
-                        )?
+        // Skip pane rendering if message viewer is active (prevents flashing)
+        let in_message_viewer = workspace.mode() == Mode::MessageViewer;
+
+        if !in_message_viewer {
+            // Render each pane
+            for (pane_id, rect) in &pane_rects {
+                if let Some(pane) = workspace.pane(*pane_id) {
+                    match pane.kind {
+                        PaneKind::Editor => {
+                            self.render_editor_pane(&mut stdout, pane, rect, theme)?
+                        }
+                        PaneKind::FileBrowser => {
+                            let is_focused = workspace.is_focused(*pane_id);
+                            self.render_file_browser_pane(
+                                &mut stdout,
+                                workspace,
+                                rect,
+                                is_focused,
+                                theme,
+                            )?
+                        }
                     }
                 }
             }
         }
 
-        // Render pane borders (only if there are multiple panes)
-        if pane_rects.len() > 1 {
-            self.render_pane_borders(&mut stdout, workspace, &pane_rects, theme)?;
-        }
+        if !in_message_viewer {
+            // Render pane borders (only if there are multiple panes)
+            if pane_rects.len() > 1 {
+                self.render_pane_borders(&mut stdout, workspace, &pane_rects, theme)?;
+            }
 
-        // If selecting pane, show overlay labels
-        if workspace.selecting_pane {
-            self.render_pane_labels(&mut stdout, workspace, &pane_rects, theme)?;
+            // If selecting pane, show overlay labels
+            if workspace.selecting_pane {
+                self.render_pane_labels(&mut stdout, workspace, &pane_rects, theme)?;
+            }
         }
 
         // Message viewer overlay (covers everything except status line)
-        if workspace.mode() == Mode::MessageViewer {
+        if in_message_viewer {
             self.render_message_viewer(&mut stdout, workspace, theme)?;
         }
 
@@ -238,12 +272,20 @@ impl Renderer {
                 // Get syntax highlights for this line
                 let highlights = pane.highlighter.line_highlights(line_idx);
 
-                // Render each character with appropriate color
-                let mut col = 0;
-                for ch in content.chars().take(text_width) {
+                // Calculate byte offset for scroll_col (for highlight matching)
+                let scroll_byte_offset: usize = content
+                    .chars()
+                    .take(pane.scroll_col)
+                    .map(|c| c.len_utf8())
+                    .sum();
+
+                // Render visible portion of the line
+                let mut byte_col = scroll_byte_offset;
+                let mut displayed = 0;
+                for ch in content.chars().skip(pane.scroll_col).take(text_width) {
                     // Determine the color for this character
                     let color = if let Some(hl) = highlights {
-                        let kind = hl.kind_at(col);
+                        let kind = hl.kind_at(byte_col);
                         self.highlight_kind_to_color(kind, theme)
                     } else {
                         theme.foreground
@@ -251,11 +293,11 @@ impl Renderer {
 
                     queue!(stdout, SetForegroundColor(color.to_crossterm()))?;
                     queue!(stdout, Print(ch))?;
-                    col += ch.len_utf8(); // Use byte offset for highlight matching
+                    byte_col += ch.len_utf8();
+                    displayed += 1;
                 }
 
                 // Pad the rest of the line
-                let displayed = content.chars().take(text_width).count();
                 if displayed < text_width {
                     queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
                     let padding = " ".repeat(text_width - displayed);
@@ -694,7 +736,7 @@ impl Renderer {
         queue!(stdout, Print(&title_text))?;
         queue!(stdout, Print(" ".repeat(padding)))?;
 
-        // Content area
+        // Content area - fully clear each line
         queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
         queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
 
@@ -705,8 +747,12 @@ impl Renderer {
 
             if line_idx < total_lines {
                 let line = lines[line_idx];
-                // Truncate line to fit width
-                let display: String = line.chars().take(self.width as usize).collect();
+                // Apply horizontal scroll and truncate
+                let display: String = line
+                    .chars()
+                    .skip(viewer.scroll_col)
+                    .take(self.width as usize)
+                    .collect();
                 queue!(stdout, Print(display))?;
             }
         }
@@ -724,7 +770,8 @@ impl Renderer {
         )?;
         queue!(stdout, Clear(ClearType::CurrentLine))?;
 
-        let help_text = " j/k: scroll | g/G: top/bottom | Ctrl-d/u: page | q: close ";
+        let help_text =
+            " j/k: scroll | h/l: pan | g/G: top/bottom | 0/$: line start/end | q: close ";
         let padding = self.width as usize - help_text.len().min(self.width as usize);
         queue!(stdout, Print(help_text))?;
         queue!(stdout, Print(" ".repeat(padding)))?;
@@ -758,7 +805,12 @@ impl Renderer {
                 queue!(stdout, Show)?;
             } else if focused_pane.kind == PaneKind::Editor {
                 let gutter_width = 4u16;
-                let cursor_x = rect.x + gutter_width + focused_pane.cursor.col as u16;
+                // Account for horizontal scroll
+                let visible_col = focused_pane
+                    .cursor
+                    .col
+                    .saturating_sub(focused_pane.scroll_col);
+                let cursor_x = rect.x + gutter_width + visible_col as u16;
                 let cursor_y =
                     rect.y + (focused_pane.cursor.line - focused_pane.scroll_offset) as u16;
                 queue!(stdout, MoveTo(cursor_x, cursor_y))?;
