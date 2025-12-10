@@ -1,5 +1,7 @@
-mod engine;
+//! Configuration module - settings and types
+//!
+//! Note: The scripting engine has moved to `src/scripting/`
+
 mod settings;
 
-pub use engine::ConfigEngine;
 pub use settings::Settings;

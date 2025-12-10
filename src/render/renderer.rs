@@ -519,6 +519,44 @@ impl Renderer {
             return Ok(());
         }
 
+        // Error - show in red, potentially multiline
+        if let Some(ref err) = workspace.error {
+            let lines: Vec<&str> = err.lines().collect();
+            let num_lines = lines.len().min(5); // Max 5 lines for error
+            let start_row = self.height.saturating_sub(num_lines as u16);
+
+            for (i, line) in lines.iter().take(num_lines).enumerate() {
+                queue!(stdout, MoveTo(0, start_row + i as u16))?;
+                queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+                queue!(stdout, SetForegroundColor(theme.error.to_crossterm()))?;
+                queue!(stdout, Clear(ClearType::CurrentLine))?;
+
+                // Prefix first line with "Error: "
+                if i == 0 {
+                    let display = format!("Error: {}", line);
+                    queue!(
+                        stdout,
+                        Print(&display[..display.len().min(self.width as usize)])
+                    )?;
+                } else {
+                    queue!(stdout, Print(&line[..line.len().min(self.width as usize)]))?;
+                }
+            }
+
+            // Show hint to dismiss
+            if num_lines < lines.len() {
+                queue!(stdout, MoveTo(0, self.height.saturating_sub(1)))?;
+                queue!(
+                    stdout,
+                    Print(format!(
+                        "... ({} more lines) [Press any key to dismiss]",
+                        lines.len() - num_lines
+                    ))
+                )?;
+            }
+            return Ok(());
+        }
+
         // Message - show prominently
         if let Some(ref msg) = workspace.message {
             queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;

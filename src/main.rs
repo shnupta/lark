@@ -9,22 +9,21 @@ mod editor;
 mod finder;
 mod input;
 mod render;
+mod scripting;
 mod theme;
 
-use config::ConfigEngine;
 use editor::{FinderAction, Workspace};
 use finder::{FinderResult, GrepMatch};
 use input::InputState;
 use render::Renderer;
+use scripting::ScriptEngine;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    // Load configuration
-    let mut config = ConfigEngine::new();
-    if let Err(e) = config.load_default() {
-        eprintln!("Config error: {}", e);
-    }
-    let settings = config.settings();
+    // Load configuration using the scripting engine
+    let mut script_engine = ScriptEngine::new();
+    let config_error = script_engine.load_default().err();
+    let settings = script_engine.settings();
 
     // Parse command line args
     let args: Vec<String> = env::args().collect();
@@ -36,6 +35,11 @@ async fn main() -> std::io::Result<()> {
 
     // Apply settings from config
     workspace.theme_name = settings.theme.clone();
+
+    // Show config error if any
+    if let Some(err) = config_error {
+        workspace.set_error(err);
+    }
 
     // Set up terminal
     Renderer::setup()?;

@@ -27,6 +27,11 @@ impl Default for InputState {
 pub fn handle_event(workspace: &mut Workspace, event: Event, input_state: &mut InputState) {
     match event {
         Event::Key(key) => {
+            // If there's an error displayed, dismiss it on any keypress
+            if workspace.error.is_some() {
+                workspace.clear_error();
+                return; // Don't process the key, just dismiss the error
+            }
             workspace.clear_message();
             handle_key(workspace, key, input_state);
         }
@@ -462,10 +467,10 @@ fn execute_command(workspace: &mut Workspace) {
         }
         "source" => {
             // Reload config file
-            let mut config = crate::config::ConfigEngine::new();
-            match config.load_default() {
+            let mut script_engine = crate::scripting::ScriptEngine::new();
+            match script_engine.load_default() {
                 Ok(_) => {
-                    let settings = config.settings();
+                    let settings = script_engine.settings();
                     workspace.theme_name = settings.theme.clone();
                     workspace.set_message("Config reloaded");
                 }

@@ -4,17 +4,17 @@
 
 ### Rhai Scripting Engine
 - [x] Add `rhai` crate dependency
-- [ ] Create scripting module (`src/scripting/`) - central runtime
+- [x] Create scripting module (`src/scripting/`) - central runtime
 - [x] Load `~/.config/lark/init.rhai` on startup
-- [ ] Namespaced API under `lark.*` (clear distinction from user code):
-  - [ ] `lark.editor.*` - buffer operations, cursor, mode, commands
-  - [ ] `lark.ui.*` - popups, floating windows, status messages, prompts
-  - [ ] `lark.config.*` - settings, themes, keybinds
-  - [ ] `lark.fs.*` - file/directory operations
-  - [ ] `lark.process.*` - spawn commands, shell integration
-  - [ ] `lark.events.*` - subscribe to editor events (on_save, on_open, etc.)
-  - [ ] `lark.lsp.*` - interact with the lsp module, add new supported languages, commands, etc.
-  - [ ] `lark.plugins.*` - use the built-in plugin manager to add, lazy-load, and configure plugins
+- [x] Namespaced API under `lark::*` (uses Rhai's static module system):
+  - [x] `lark::config::*` - settings, themes, keybinds (implemented)
+  - [ ] `lark::editor::*` - buffer operations, cursor, mode, commands
+  - [ ] `lark::ui::*` - popups, floating windows, status messages, prompts
+  - [ ] `lark::fs::*` - file/directory operations
+  - [ ] `lark::process::*` - spawn commands, shell integration
+  - [ ] `lark::events::*` - subscribe to editor events (on_save, on_open, etc.)
+  - [ ] `lark::lsp::*` - interact with the lsp module, add new supported languages
+  - [ ] `lark::plugins::*` - plugin manager to add, lazy-load, and configure plugins
 - [ ] Module imports (`import "modules/my_plugin" as plugin;`)
 - [ ] Apply custom keybinds from config
 - [ ] Hot-reload config on file change

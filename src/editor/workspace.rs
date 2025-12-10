@@ -18,6 +18,7 @@ pub struct Workspace {
     pub active_tab: usize,
     pub command_buffer: String,
     pub message: Option<String>,
+    pub error: Option<String>, // Multiline error messages
     pub running: bool,
     pub pending_keys: String,
     pub selecting_pane: bool,
@@ -33,6 +34,7 @@ impl Workspace {
             active_tab: 0,
             command_buffer: String::new(),
             message: None,
+            error: None,
             running: true,
             pending_keys: String::new(),
             selecting_pane: false,
@@ -48,6 +50,7 @@ impl Workspace {
             active_tab: 0,
             command_buffer: String::new(),
             message: None,
+            error: None,
             running: true,
             pending_keys: String::new(),
             selecting_pane: false,
@@ -218,6 +221,14 @@ impl Workspace {
 
     pub fn clear_message(&mut self) {
         self.message = None;
+    }
+
+    pub fn set_error(&mut self, err: impl Into<String>) {
+        self.error = Some(err.into());
+    }
+
+    pub fn clear_error(&mut self) {
+        self.error = None;
     }
 
     pub fn quit(&mut self) {
