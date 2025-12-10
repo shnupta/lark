@@ -66,6 +66,12 @@ fn handle_key(workspace: &mut Workspace, key: KeyEvent, input_state: &mut InputS
         return;
     }
 
+    // Message viewer mode - simple scrolling interface
+    if workspace.mode() == Mode::MessageViewer {
+        handle_message_viewer_mode(workspace, key);
+        return;
+    }
+
     let pane = workspace.focused_pane();
     let kind = pane.kind;
 
@@ -239,6 +245,56 @@ fn handle_command_mode(workspace: &mut Workspace, key: KeyEvent) {
         }
         KeyCode::Char(c) => {
             workspace.command_buffer.push(c);
+        }
+        _ => {}
+    }
+}
+
+fn handle_message_viewer_mode(workspace: &mut Workspace, key: KeyEvent) {
+    let height = workspace.terminal_size.1.saturating_sub(4) as usize; // Leave room for title and help
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            workspace.close_message_viewer();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                let max_scroll = viewer.content.lines().count().saturating_sub(height);
+                if viewer.scroll < max_scroll {
+                    viewer.scroll += 1;
+                }
+            }
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                viewer.scroll = viewer.scroll.saturating_sub(1);
+            }
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Page down
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                let max_scroll = viewer.content.lines().count().saturating_sub(height);
+                viewer.scroll = (viewer.scroll + height / 2).min(max_scroll);
+            }
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            // Page up
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                viewer.scroll = viewer.scroll.saturating_sub(height / 2);
+            }
+        }
+        KeyCode::Char('g') => {
+            // Go to top
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                viewer.scroll = 0;
+            }
+        }
+        KeyCode::Char('G') => {
+            // Go to bottom
+            if let Some(ref mut viewer) = workspace.message_viewer {
+                let max_scroll = viewer.content.lines().count().saturating_sub(height);
+                viewer.scroll = max_scroll;
+            }
         }
         _ => {}
     }
@@ -665,23 +721,12 @@ fn execute_command(workspace: &mut Workspace) {
             }
         }
         "log" => {
-            // Show the editor log
+            // Show the editor log in the message viewer
             let log = workspace.get_log();
             if log.is_empty() {
                 workspace.set_message("Log is empty");
             } else {
-                // Show log in message - truncate if too long
-                let lines: Vec<&str> = log.lines().collect();
-                let display = if lines.len() > 5 {
-                    format!(
-                        "... ({} more)\n{}",
-                        lines.len() - 5,
-                        lines[lines.len() - 5..].join("\n")
-                    )
-                } else {
-                    log
-                };
-                workspace.set_message(display);
+                workspace.show_message_viewer("Editor Log", log);
             }
         }
         "syntax" => {
@@ -698,6 +743,12 @@ fn execute_command(workspace: &mut Workspace) {
             };
             let status = pane.highlighter.status();
             workspace.set_message(format!("{} | {} | {}", pane_kind, file_info, status));
+        }
+        "TSDebug" => {
+            // Debug: dump tree-sitter node types for first few lines
+            let pane = workspace.focused_pane();
+            let debug_info = pane.highlighter.debug_tree(50); // More lines for better debugging
+            workspace.show_message_viewer("Tree-sitter Debug", debug_info);
         }
         "verbose" => {
             // Toggle verbose mode
@@ -729,7 +780,10 @@ fn execute_command(workspace: &mut Workspace) {
         }
     }
     workspace.command_buffer.clear();
-    workspace.focused_pane_mut().mode = Mode::Normal;
+    // Only reset mode if not in MessageViewer (some commands switch to it)
+    if workspace.mode() != Mode::MessageViewer {
+        workspace.focused_pane_mut().mode = Mode::Normal;
+    }
 }
 
 // Word motion helpers

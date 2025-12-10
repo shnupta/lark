@@ -12,4 +12,4 @@ pub use cursor::Cursor;
 pub use layout::{Direction, Rect};
 pub use mode::Mode;
 pub use pane::{Pane, PaneKind};
-pub use workspace::{FinderAction, Workspace};
+pub use workspace::{FinderAction, MessageViewerState, Workspace};

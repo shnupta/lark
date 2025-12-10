@@ -36,6 +36,12 @@ pub enum HighlightKind {
 impl HighlightKind {
     /// Map a Tree-sitter node type to a highlight kind
     pub fn from_node_type(node_type: &str, lang: Language) -> Self {
+        // Try language-specific patterns first (they're more accurate)
+        let specific = Self::from_language_specific(node_type, lang);
+        if specific != HighlightKind::Default {
+            return specific;
+        }
+
         // Common patterns across languages
         match node_type {
             // Comments
@@ -55,18 +61,10 @@ impl HighlightKind {
             "number" | "integer" | "float" | "integer_literal" | "float_literal"
             | "number_literal" => HighlightKind::Number,
 
-            // Keywords (language-specific patterns included)
+            // Keywords (generic)
             "keyword" | "storage_class" | "visibility_modifier" | "mutable_specifier" => {
                 HighlightKind::Keyword
             }
-
-            // Functions
-            "function_item"
-            | "function_definition"
-            | "method_definition"
-            | "function_declaration"
-            | "call_expression"
-            | "method_call" => HighlightKind::Function,
 
             // Types
             "type"
@@ -75,51 +73,27 @@ impl HighlightKind {
             | "type_annotation"
             | "type_arguments"
             | "generic_type"
-            | "struct_item"
-            | "enum_item"
-            | "trait_item"
             | "class_definition"
             | "interface_declaration" => HighlightKind::Type,
 
-            // Variables and identifiers
-            "identifier" | "variable" | "field_identifier" | "shorthand_field_identifier" => {
-                HighlightKind::Variable
-            }
+            // Variables and identifiers (only if not matched by language-specific)
+            "variable" | "shorthand_field_identifier" => HighlightKind::Variable,
 
             // Operators
-            "operator"
-            | "binary_expression"
-            | "unary_expression"
-            | "comparison_operator"
-            | "assignment_operator" => HighlightKind::Operator,
-
-            // Punctuation
-            "delimiter" | "bracket" | "parenthesis" | "brace" | "semicolon" | "comma" | "colon"
-            | "arrow" | "fat_arrow" => HighlightKind::Punctuation,
+            "operator" | "comparison_operator" | "assignment_operator" => HighlightKind::Operator,
 
             // Properties/fields
-            "property" | "property_identifier" | "field_expression" | "member_expression" => {
-                HighlightKind::Property
-            }
+            "property" | "property_identifier" | "member_expression" => HighlightKind::Property,
 
             // Constants
-            "true" | "false" | "null" | "none" | "nil" | "boolean" | "constant" | "const_item" => {
+            "true" | "false" | "null" | "none" | "nil" | "boolean" | "constant" => {
                 HighlightKind::Constant
             }
-
-            // Namespaces/modules
-            "namespace" | "module" | "use_declaration" | "import_statement" | "import" | "use" => {
-                HighlightKind::Namespace
-            }
-
-            // Parameters
-            "parameter" | "formal_parameter" | "parameters" => HighlightKind::Parameter,
 
             // Labels
             "label" | "loop_label" | "lifetime" => HighlightKind::Label,
 
-            // Language-specific patterns
-            _ => Self::from_language_specific(node_type, lang),
+            _ => HighlightKind::Default,
         }
     }
 
@@ -137,14 +111,53 @@ impl HighlightKind {
 
     fn from_rust_node(node_type: &str) -> Self {
         match node_type {
+            // Keywords
             "let" | "fn" | "pub" | "mod" | "use" | "struct" | "enum" | "trait" | "impl" | "for"
             | "loop" | "while" | "if" | "else" | "match" | "return" | "break" | "continue"
             | "async" | "await" | "const" | "static" | "mut" | "ref" | "self" | "super"
-            | "crate" | "where" | "as" | "in" | "dyn" | "move" | "type" | "unsafe" | "extern" => {
+            | "crate" | "where" | "as" | "in" | "dyn" | "move" | "type" | "unsafe" | "extern"
+            | "default" | "union" | "become" | "box" | "do" | "final" | "macro" | "override"
+            | "priv" | "typeof" | "unsized" | "virtual" | "yield" | "try" | "abstract" | "Self" => {
                 HighlightKind::Keyword
             }
-            "macro_invocation" | "macro_definition" | "macro_rules" => HighlightKind::Function,
-            "attribute_item" | "inner_attribute_item" => HighlightKind::Label,
+
+            // Punctuation and operators
+            ";" | "," | "::" | ":" | "->" | "=>" | "=" | "+" | "-" | "*" | "/" | "%" | "&"
+            | "|" | "^" | "!" | "<" | ">" | "?" | "@" | "#" | "." | ".." | "..." | "..=" | "+="
+            | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<" | ">>" | "<<=" | ">>="
+            | "==" | "!=" | "<=" | ">=" | "&&" | "||" => HighlightKind::Operator,
+
+            // Brackets
+            "(" | ")" | "[" | "]" | "{" | "}" => HighlightKind::Punctuation,
+
+            // Types
+            "type_identifier" | "primitive_type" | "scoped_type_identifier" => HighlightKind::Type,
+
+            // Constants and literals
+            "boolean_literal" | "integer_literal" | "float_literal" => HighlightKind::Number,
+            "char_literal" => HighlightKind::String,
+
+            // Macros (note: "!" is handled via parent context in determine_highlight_kind)
+            "macro_invocation" | "macro_definition" | "macro_rules!" => HighlightKind::Function,
+
+            // Identifiers in specific contexts
+            "field_identifier" => HighlightKind::Property,
+            "identifier" => HighlightKind::Variable,
+
+            // Attributes
+            "attribute_item" | "inner_attribute_item" | "attribute" => HighlightKind::Label,
+
+            // Lifetime
+            "lifetime" | "label" => HighlightKind::Label,
+
+            // Strings
+            "string_literal" | "raw_string_literal" | "string_content" | "escape_sequence" => {
+                HighlightKind::String
+            }
+
+            // Comments
+            "line_comment" | "block_comment" => HighlightKind::Comment,
+
             _ => HighlightKind::Default,
         }
     }
@@ -355,6 +368,65 @@ impl Highlighter {
         self.line_highlights.get(line)
     }
 
+    /// Debug: dump node types for the first N lines
+    pub fn debug_tree(&self, max_lines: usize) -> String {
+        let Some(ref tree) = self.tree else {
+            return "No parse tree".to_string();
+        };
+
+        let mut result = vec![format!("Language: {:?}", self.language)];
+        let mut cursor = tree.walk();
+        let mut seen_types: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        fn collect_types(
+            cursor: &mut tree_sitter::TreeCursor,
+            seen: &mut std::collections::HashSet<String>,
+            max_row: usize,
+            lang: Language,
+        ) {
+            loop {
+                let node = cursor.node();
+                if node.start_position().row > max_row {
+                    break;
+                }
+
+                let kind = HighlightKind::from_node_type(node.kind(), lang);
+                let info = format!(
+                    "{}:{}{} -> {:?}",
+                    node.kind(),
+                    if node.is_named() { "N" } else { "A" },
+                    if node.child_count() == 0 { "*" } else { "" },
+                    kind
+                );
+                seen.insert(info);
+
+                if cursor.goto_first_child() {
+                    collect_types(cursor, seen, max_row, lang);
+                    cursor.goto_parent();
+                }
+                if !cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+        }
+
+        collect_types(&mut cursor, &mut seen_types, max_lines, self.language);
+
+        // Show highlights we generated for line 0
+        let line0_info = if let Some(hl) = self.line_highlights.get(0) {
+            format!("Line 0 highlights: {}", hl.highlights.len())
+        } else {
+            "No line 0 highlights".to_string()
+        };
+        result.push(line0_info);
+
+        let mut types: Vec<_> = seen_types.into_iter().collect();
+        types.sort();
+        result.push(format!("Nodes: {}", types.join(", ")));
+
+        result.join("\n")
+    }
+
     /// Build highlights from the parse tree
     fn build_highlights(&mut self, source: &str, tree: &Tree) {
         // Count lines
@@ -371,22 +443,86 @@ impl Highlighter {
 
         // Walk the tree and collect highlights
         let mut cursor = tree.walk();
-        self.walk_tree(&mut cursor, source, &line_starts);
+        self.walk_tree_with_parent(&mut cursor, source, &line_starts, None);
     }
 
-    fn walk_tree(
+    /// Determine highlight kind considering parent context
+    fn determine_highlight_kind(
+        node_kind: &str,
+        parent_kind: Option<&str>,
+        lang: Language,
+    ) -> HighlightKind {
+        // First check for context-sensitive highlighting
+        if let Some(parent) = parent_kind {
+            match (node_kind, parent) {
+                // Macro names (identifier or scoped_identifier inside macro_invocation)
+                ("identifier", "macro_invocation") => return HighlightKind::Function,
+                ("scoped_identifier", "macro_invocation") => return HighlightKind::Function,
+                // The `!` in macros
+                ("!", "macro_invocation") => return HighlightKind::Function,
+                // Identifiers inside scoped macro names (e.g., tokio in tokio::select!)
+                ("identifier", "scoped_identifier") if lang == Language::Rust => {
+                    // This will be colored as Type by default, which is fine for paths
+                }
+
+                // Function names in call expressions
+                ("identifier", "call_expression") => return HighlightKind::Function,
+                ("field_identifier", "field_expression") if lang == Language::Rust => {
+                    // Method calls like .iter(), .collect()
+                    return HighlightKind::Function;
+                }
+                // Scoped function calls like theme::get_builtin_theme
+                ("scoped_identifier", "call_expression") => return HighlightKind::Function,
+
+                // Type context - identifiers in type positions
+                ("identifier", "scoped_type_identifier") => return HighlightKind::Type,
+                ("identifier", "type_arguments") => return HighlightKind::Type,
+                ("identifier", "generic_type") => return HighlightKind::Type,
+                ("scoped_identifier", "type_arguments") => return HighlightKind::Type,
+                ("scoped_identifier", "generic_type") => return HighlightKind::Type,
+                // Type annotations
+                ("identifier", "type_binding") => return HighlightKind::Type,
+                ("scoped_identifier", "type_binding") => return HighlightKind::Type,
+
+                // Function parameters
+                ("identifier", "parameter") => return HighlightKind::Parameter,
+                ("identifier", "parameters") => return HighlightKind::Parameter,
+
+                // Struct/enum field definitions
+                ("identifier", "field_declaration") => return HighlightKind::Property,
+
+                // Use declarations - color the path
+                ("identifier", "use_declaration") => return HighlightKind::Type,
+                ("scoped_identifier", "use_declaration") => return HighlightKind::Type,
+                ("identifier", "scoped_identifier") => return HighlightKind::Type,
+                ("identifier", "use_list") => return HighlightKind::Type,
+                ("identifier", "use_as_clause") => return HighlightKind::Type,
+
+                _ => {}
+            }
+        }
+
+        // Fall back to regular matching
+        HighlightKind::from_node_type(node_kind, lang)
+    }
+
+    fn walk_tree_with_parent(
         &mut self,
         cursor: &mut tree_sitter::TreeCursor,
         source: &str,
         line_starts: &[usize],
+        parent_kind: Option<&str>,
     ) {
         loop {
             let node = cursor.node();
-            let kind = HighlightKind::from_node_type(node.kind(), self.language);
+            let node_kind = node.kind();
+
+            // Determine highlight kind with parent context
+            let kind = Self::determine_highlight_kind(node_kind, parent_kind, self.language);
 
             // Only add highlights for leaf nodes or specific node types
             if kind != HighlightKind::Default
-                && (node.child_count() == 0 || is_highlightable_parent(node.kind()))
+                && (node.child_count() == 0 || is_highlightable_parent(node_kind))
             {
                 let start_byte = node.start_byte();
                 let end_byte = node.end_byte();
@@ -424,9 +560,9 @@ impl Highlighter {
                 }
             }
 
-            // Recurse into children
+            // Recurse into children with current node as parent
             if cursor.goto_first_child() {
-                self.walk_tree(cursor, source, line_starts);
+                self.walk_tree_with_parent(cursor, source, line_starts, Some(node_kind));
                 cursor.goto_parent();
             }
 
@@ -452,9 +588,14 @@ fn is_highlightable_parent(node_type: &str) -> bool {
             | "string_literal"
             | "raw_string"
             | "raw_string_literal"
+            | "char_literal"
             | "comment"
             | "line_comment"
             | "block_comment"
+            | "doc_comment"
+            | "macro_invocation"
+            | "attribute_item"
+            | "inner_attribute_item"
     )
 }
 

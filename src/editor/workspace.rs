@@ -12,6 +12,13 @@ pub enum FinderAction {
     Grep(String),
 }
 
+/// State for the message viewer
+pub struct MessageViewerState {
+    pub content: String,
+    pub scroll: usize,
+    pub title: String,
+}
+
 /// The workspace manages tabs, each containing panes
 pub struct Workspace {
     pub tabs: Vec<Tab>,
@@ -27,6 +34,7 @@ pub struct Workspace {
     pub terminal_size: (u16, u16), // (width, height)
     pub log: Vec<String>,          // Editor log messages
     pub verbose: bool,             // Verbose logging mode
+    pub message_viewer: Option<MessageViewerState>,
 }
 
 impl Workspace {
@@ -45,7 +53,24 @@ impl Workspace {
             terminal_size: (80, 24),
             log: Vec::new(),
             verbose: false,
+            message_viewer: None,
         }
+    }
+
+    /// Open the message viewer with content
+    pub fn show_message_viewer(&mut self, title: &str, content: String) {
+        self.message_viewer = Some(MessageViewerState {
+            content,
+            scroll: 0,
+            title: title.to_string(),
+        });
+        self.focused_pane_mut().mode = super::Mode::MessageViewer;
+    }
+
+    /// Close the message viewer
+    pub fn close_message_viewer(&mut self) {
+        self.message_viewer = None;
+        self.focused_pane_mut().mode = super::Mode::Normal;
     }
 
     pub fn open(path: PathBuf) -> Self {
@@ -63,6 +88,7 @@ impl Workspace {
             terminal_size: (80, 24),
             log: Vec::new(),
             verbose: false,
+            message_viewer: None,
         }
     }
 

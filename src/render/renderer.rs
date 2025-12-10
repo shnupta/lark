@@ -129,6 +129,11 @@ impl Renderer {
             self.render_pane_labels(&mut stdout, workspace, &pane_rects, theme)?;
         }
 
+        // Message viewer overlay (covers everything except status line)
+        if workspace.mode() == Mode::MessageViewer {
+            self.render_message_viewer(&mut stdout, workspace, theme)?;
+        }
+
         // Render global status line
         self.render_status_line(&mut stdout, workspace, theme)?;
 
@@ -654,6 +659,82 @@ impl Renderer {
         Ok(())
     }
 
+    fn render_message_viewer(
+        &self,
+        stdout: &mut impl Write,
+        workspace: &Workspace,
+        theme: &Theme,
+    ) -> io::Result<()> {
+        let Some(ref viewer) = workspace.message_viewer else {
+            return Ok(());
+        };
+
+        let content_height = self.height.saturating_sub(3) as usize; // Title + help line + status
+        let lines: Vec<&str> = viewer.content.lines().collect();
+        let total_lines = lines.len();
+
+        // Title bar
+        queue!(stdout, MoveTo(0, 0))?;
+        queue!(
+            stdout,
+            SetBackgroundColor(theme.status_bar_bg.to_crossterm())
+        )?;
+        queue!(
+            stdout,
+            SetForegroundColor(theme.status_bar_fg.to_crossterm())
+        )?;
+
+        let title_text = format!(
+            " {} ({}/{} lines) ",
+            viewer.title,
+            viewer.scroll + 1,
+            total_lines
+        );
+        let padding = self.width as usize - title_text.len().min(self.width as usize);
+        queue!(stdout, Print(&title_text))?;
+        queue!(stdout, Print(" ".repeat(padding)))?;
+
+        // Content area
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+        queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
+
+        for row in 0..content_height {
+            let line_idx = viewer.scroll + row;
+            queue!(stdout, MoveTo(0, row as u16 + 1))?;
+            queue!(stdout, Clear(ClearType::CurrentLine))?;
+
+            if line_idx < total_lines {
+                let line = lines[line_idx];
+                // Truncate line to fit width
+                let display: String = line.chars().take(self.width as usize).collect();
+                queue!(stdout, Print(display))?;
+            }
+        }
+
+        // Help line at bottom (before status line)
+        let help_row = self.height.saturating_sub(2);
+        queue!(stdout, MoveTo(0, help_row))?;
+        queue!(
+            stdout,
+            SetBackgroundColor(theme.status_bar_bg.to_crossterm())
+        )?;
+        queue!(
+            stdout,
+            SetForegroundColor(theme.status_bar_fg.to_crossterm())
+        )?;
+        queue!(stdout, Clear(ClearType::CurrentLine))?;
+
+        let help_text = " j/k: scroll | g/G: top/bottom | Ctrl-d/u: page | q: close ";
+        let padding = self.width as usize - help_text.len().min(self.width as usize);
+        queue!(stdout, Print(help_text))?;
+        queue!(stdout, Print(" ".repeat(padding)))?;
+
+        queue!(stdout, SetBackgroundColor(theme.background.to_crossterm()))?;
+        queue!(stdout, SetForegroundColor(theme.foreground.to_crossterm()))?;
+
+        Ok(())
+    }
+
     fn position_cursor(
         &self,
         stdout: &mut impl Write,
@@ -661,6 +742,12 @@ impl Renderer {
         pane_rects: &[(usize, Rect)],
         _theme: &Theme,
     ) -> io::Result<()> {
+        // Hide cursor for message viewer
+        if workspace.mode() == Mode::MessageViewer {
+            queue!(stdout, Hide)?;
+            return Ok(());
+        }
+
         let focused_pane = workspace.focused_pane();
         if let Some((_, rect)) = pane_rects.iter().find(|(id, _)| *id == focused_pane.id) {
             if workspace.mode() == Mode::Command {

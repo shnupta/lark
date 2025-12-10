@@ -5,6 +5,7 @@ pub enum Mode {
     Insert,
     Command,
     FileBrowser,
+    MessageViewer,
 }
 
 impl Mode {
@@ -14,6 +15,7 @@ impl Mode {
             Mode::Insert => "INSERT",
             Mode::Command => "COMMAND",
             Mode::FileBrowser => "FILES",
+            Mode::MessageViewer => "MESSAGE",
         }
     }
 }
